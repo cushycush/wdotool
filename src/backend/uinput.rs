@@ -488,8 +488,8 @@ mod tests {
         assert_eq!(mouse_button_code(MouseButton::Middle), Some(0x112)); // BTN_MIDDLE
         assert_eq!(mouse_button_code(MouseButton::Back), Some(0x113)); // BTN_SIDE
         assert_eq!(mouse_button_code(MouseButton::Forward), Some(0x114)); // BTN_EXTRA
-        // "Other" is intentionally rejected so the caller can produce an
-        // InvalidArg error with the original index.
+
+        // Unknown indices reject — caller surfaces InvalidArg with the original.
         assert_eq!(mouse_button_code(MouseButton::Other(99)), None);
     }
 }

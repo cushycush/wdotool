@@ -14,23 +14,6 @@ pub struct Capabilities {
     pub close_window: bool,
 }
 
-impl Capabilities {
-    pub const fn none() -> Self {
-        Self {
-            key_input: false,
-            text_input: false,
-            pointer_move_absolute: false,
-            pointer_move_relative: false,
-            pointer_button: false,
-            scroll: false,
-            list_windows: false,
-            active_window: false,
-            activate_window: false,
-            close_window: false,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyDirection {
     Press,

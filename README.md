@@ -16,20 +16,21 @@ An xdotool-compatible input automation CLI for Wayland, built on the protocols t
 
 Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backends need help from people running those desktops to verify — see [issue #1](https://github.com/cushycush/wdotool/issues/1) (KDE) and [issue #2](https://github.com/cushycush/wdotool/issues/2) (GNOME).
 
-| Feature                         | libei    | wlroots | kde       | uinput   |
-| ------------------------------- | -------- | ------- | --------- | -------- |
-| `key` / `keydown` / `keyup`     | ✅       | ✅      | ✅        | ✅       |
-| `type` (Unicode via keymap)     | partial¹ | ✅      | partial¹  | partial² |
-| `mousemove` (relative)          | ✅       | ✅      | ✅        | ✅       |
-| `mousemove` (absolute)          | ✅       | ✅      | ✅        | ✅       |
-| `click` / `mousedown` / `mouseup` | ✅     | ✅      | ✅        | ✅       |
-| `scroll`                        | ✅       | ✅      | ✅        | ✅       |
-| `search` / `getactivewindow`    | —        | ✅      | ✅³       | —        |
-| `windowactivate` / `windowclose` | —       | ✅      | ✅³       | —        |
+| Feature                         | libei    | wlroots | kde       | gnome     | uinput   |
+| ------------------------------- | -------- | ------- | --------- | --------- | -------- |
+| `key` / `keydown` / `keyup`     | ✅       | ✅      | ✅        | ✅        | ✅       |
+| `type` (Unicode via keymap)     | partial¹ | ✅      | partial¹  | partial¹  | partial² |
+| `mousemove` (relative)          | ✅       | ✅      | ✅        | ✅        | ✅       |
+| `mousemove` (absolute)          | ✅       | ✅      | ✅        | ✅        | ✅       |
+| `click` / `mousedown` / `mouseup` | ✅     | ✅      | ✅        | ✅        | ✅       |
+| `scroll`                        | ✅       | ✅      | ✅        | ✅        | ✅       |
+| `search` / `getactivewindow`    | —        | ✅      | ✅³       | ✅⁴       | —        |
+| `windowactivate` / `windowclose` | —       | ✅      | ✅³       | ✅⁴       | —        |
 
-¹ libei (and `kde`, which uses libei for input) is a sender context; the EIS server owns the keymap. Characters not in the active layout are skipped with a warning.
+¹ libei (and `kde` / `gnome`, which use libei for input) is a sender context; the EIS server owns the keymap. Characters not in the active layout are skipped with a warning.
 ² uinput has the same limitation as libei — the kernel doesn't know about keymaps. Best-effort via the env-default xkb layout.
 ³ Implemented but unverified on a real Plasma session ([issue #1](https://github.com/cushycush/wdotool/issues/1)).
+⁴ Requires the companion GNOME Shell extension in `packaging/gnome-extension/wdotool@wdotool.github.io/` — see [issue #2](https://github.com/cushycush/wdotool/issues/2). Without it, `gnome` falls back to bare libei (input only).
 
 ## Install
 
@@ -124,6 +125,20 @@ Composes libei (for input) with KWin-scripting window management over D-Bus. Gen
 - `xdg-desktop-portal-kde` for the libei input path.
 - KWin 5.22+ for the Scripting D-Bus interface.
 
+### gnome
+
+Pairs libei (for input, via GNOME's RemoteDesktop portal) with a companion GNOME Shell extension that exposes `ListWindows` / `GetActiveWindow` / `ActivateWindow` / `CloseWindow` on the session bus. GNOME Shell has no generic external window API, so the extension is mandatory for window management — without it, the detector falls back to bare libei automatically.
+
+**Requirements:**
+- `xdg-desktop-portal-gnome` for the libei input path (GNOME 46+ ships it).
+- The `wdotool@wdotool.github.io` extension, installable from `packaging/gnome-extension/`:
+  ```sh
+  cp -r packaging/gnome-extension/wdotool@wdotool.github.io ~/.local/share/gnome-shell/extensions/
+  # log out + log back in, then enable:
+  gnome-extensions enable wdotool@wdotool.github.io
+  ```
+  The extension targets GNOME Shell 45–48. No background activity — it only handles D-Bus method calls from the wdotool CLI.
+
 ### uinput
 
 Creates a virtual input device via `/dev/uinput` and writes raw `input_event` structs through the kernel. Compositor-agnostic — works on Wayland, X11, or a bare framebuffer session — but has no focus awareness and no window API. **Fallback for environments without libei or wlroots.**
@@ -144,7 +159,7 @@ Creates a virtual input device via `/dev/uinput` and writes raw `input_event` st
 | Sway         | wlroots       | wlroots        |
 | river        | wlroots       | wlroots        |
 | Wayfire      | wlroots       | wlroots        |
-| GNOME (46+)  | libei         | planned — [#2](https://github.com/cushycush/wdotool/issues/2) |
+| GNOME (46+)  | libei         | companion Shell extension (D-Bus) — [#2](https://github.com/cushycush/wdotool/issues/2) |
 | KDE Plasma 6 | libei         | KWin scripting (D-Bus) — [#1](https://github.com/cushycush/wdotool/issues/1) |
 | Anything else | uinput       | —              |
 
@@ -166,7 +181,7 @@ System libraries at build time: `libxkbcommon-dev` and `libwayland-dev` (Debian/
 
 - Unicode `type` works fully on wlroots via transient-keymap injection. On libei, kde, and uinput it's best-effort — the compositor or kernel owns the keymap, so characters outside the active layout are skipped with a warning.
 - Multi-output absolute pointer on wlroots uses whichever `wl_output` replied first. Fine for single-monitor setups; targeting a specific output would need a new CLI arg.
-- GNOME window management (`search` / `windowactivate` / `windowclose`) is not yet implemented — requires a Shell extension. See [issue #2](https://github.com/cushycush/wdotool/issues/2).
+- GNOME window management (`search` / `windowactivate` / `windowclose`) ships a companion Shell extension at `packaging/gnome-extension/wdotool@wdotool.github.io/`. Unverified on a live GNOME session — see [issue #2](https://github.com/cushycush/wdotool/issues/2).
 - KDE backend is implemented but unverified on a real Plasma session. See [issue #1](https://github.com/cushycush/wdotool/issues/1).
 - No multi-seat handling — the first seat gets everything.
 - `--clearmodifiers` on Wayland can't do xdotool's save-and-restore dance (we can't observe current modifier state); see the Usage note above.

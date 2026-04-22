@@ -1,13 +1,12 @@
 use tracing::{debug, info, warn};
 
+use super::gnome::GnomeExtBackend;
 use super::kde::KdeBackend;
 use super::libei::LibeiBackend;
-use super::stub::PendingBackend;
 use super::uinput::UinputBackend;
 use super::wlroots::WlrootsBackend;
 use super::DynBackend;
 use crate::error::{Result, WdoError};
-use crate::types::Capabilities;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendKind {
@@ -111,14 +110,17 @@ pub fn priority(env: &Environment) -> Vec<BackendKind> {
         order.push(BackendKind::KdeDBus);
         order.push(BackendKind::Libei);
         order.push(BackendKind::Wlroots);
-    } else {
-        // GNOME and other portal-capable sessions prefer bare libei
+    } else if env.desktop_is("GNOME") {
+        // GnomeExt (libei input + Shell-extension window bridge) is a strict
+        // superset of libei on GNOME — when the extension is installed. If
+        // its init fails, build() falls through to bare libei automatically.
+        order.push(BackendKind::GnomeExt);
         order.push(BackendKind::Libei);
         order.push(BackendKind::Wlroots);
-    }
-
-    if env.desktop_is("GNOME") {
-        order.push(BackendKind::GnomeExt);
+    } else {
+        // Other portal-capable sessions prefer bare libei.
+        order.push(BackendKind::Libei);
+        order.push(BackendKind::Wlroots);
     }
 
     order.push(BackendKind::Uinput);
@@ -172,12 +174,8 @@ async fn build_one(kind: BackendKind) -> Result<DynBackend> {
         BackendKind::Libei => Ok(Box::new(LibeiBackend::try_new().await?)),
         BackendKind::Wlroots => Ok(Box::new(WlrootsBackend::try_new().await?)),
         BackendKind::KdeDBus => Ok(Box::new(KdeBackend::try_new().await?)),
+        BackendKind::GnomeExt => Ok(Box::new(GnomeExtBackend::try_new().await?)),
         BackendKind::Uinput => Ok(Box::new(UinputBackend::try_new()?)),
-        // Remaining kinds are still stubs until their real impls land.
-        _ => Ok(Box::new(PendingBackend {
-            name: kind.label(),
-            caps: Capabilities::none(),
-        })),
     }
 }
 
@@ -199,7 +197,10 @@ mod tests {
     }
 
     #[test]
-    fn priority_prefers_libei_on_gnome() {
+    fn priority_on_gnome_prefers_gnome_ext_then_falls_back_to_libei() {
+        // GnomeExtBackend is a strict superset of libei on GNOME (input via
+        // libei + windows via the Shell extension), so it leads. If the
+        // extension isn't installed, build() auto-falls-through to libei.
         let env = Environment {
             desktop: Some("GNOME".into()),
             session_type: Some("wayland".into()),
@@ -207,8 +208,13 @@ mod tests {
             compositor_hints: vec![],
         };
         let order = priority(&env);
-        assert_eq!(order.first().copied(), Some(BackendKind::Libei));
-        assert!(order.contains(&BackendKind::GnomeExt));
+        assert_eq!(order.first().copied(), Some(BackendKind::GnomeExt));
+        let libei_idx = order.iter().position(|k| *k == BackendKind::Libei);
+        let gnome_idx = order.iter().position(|k| *k == BackendKind::GnomeExt);
+        assert!(
+            gnome_idx < libei_idx,
+            "gnome-ext must come before libei: {order:?}"
+        );
     }
 
     #[test]
