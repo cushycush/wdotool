@@ -30,7 +30,10 @@ Early but usable. Tested on Hyprland. Current surface:
 ## Install
 
 ```sh
-# Prebuilt binary (x86_64 Linux) — recommended
+# Arch Linux (AUR) — builds from source
+paru -S wdotool   # or: yay -S wdotool
+
+# Prebuilt binary (x86_64 Linux)
 curl -LsSf https://github.com/cushycush/wdotool/releases/latest/download/wdotool-installer.sh | sh
 
 # From crates.io (any arch; builds on install)
