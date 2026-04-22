@@ -1,0 +1,71 @@
+name: Publish to AUR
+
+# Fires after the GitHub Release workflow (cargo-dist) has created a Release
+# for a new tag. By that point the source tarball at
+# https://github.com/<owner>/<repo>/archive/refs/tags/<tag>.tar.gz is available
+# and its sha256 is stable.
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed so the "sync PKGBUILD back to main" step can push a commit.
+      contents: write
+    steps:
+      - name: Check out source (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          # Fetch full history so the auto-commit step can push non-trivially.
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        # GITHUB_REF_NAME is the tag (e.g. v0.1.2); strip the leading 'v'.
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          pkgver="${tag#v}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "pkgver=${pkgver}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute source tarball sha256
+        id: sha
+        run: |
+          curl -fsSL \
+            "https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.version.outputs.tag }}.tar.gz" \
+            -o src.tar.gz
+          sum="$(sha256sum src.tar.gz | awk '{print $1}')"
+          echo "sha256=${sum}" >> "$GITHUB_OUTPUT"
+
+      - name: Patch PKGBUILD
+        run: |
+          sed -i "s|^pkgver=.*|pkgver=${{ steps.version.outputs.pkgver }}|" packaging/aur/PKGBUILD
+          sed -i "s|^pkgrel=.*|pkgrel=1|" packaging/aur/PKGBUILD
+          sed -i "s|^sha256sums=.*|sha256sums=('${{ steps.sha.outputs.sha256 }}')|" packaging/aur/PKGBUILD
+          echo "--- patched PKGBUILD ---"
+          cat packaging/aur/PKGBUILD
+
+      - name: Publish to AUR
+        # Third-party action — review before bumping. Pinned major version so
+        # we don't auto-adopt behavior changes.
+        uses: KSXGitHub/github-actions-deploy-aur@v3.1.0
+        with:
+          pkgname: wdotool
+          pkgbuild: packaging/aur/PKGBUILD
+          commit_username: Matthew Cushing
+          commit_email: hgxtymphwn@privaterelay.appleid.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${{ steps.version.outputs.pkgver }}"
+          ssh_keyscan_types: rsa,ecdsa,ed25519
+
+      - name: Sync updated PKGBUILD back to main
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "AUR: bump PKGBUILD to ${{ steps.version.outputs.pkgver }}"
+          file_pattern: packaging/aur/PKGBUILD
+          commit_user_name: Matthew Cushing
+          commit_user_email: hgxtymphwn@privaterelay.appleid.com
+          branch: main
