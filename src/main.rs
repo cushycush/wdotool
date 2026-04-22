@@ -59,12 +59,45 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
             println!("  activate_window:       {}", caps.activate_window);
             println!("  close_window:          {}", caps.close_window);
         }
-        Command::Key { chain } => run_key(backend, &chain, KeyDirection::PressRelease).await?,
-        Command::Keydown { chain } => run_key(backend, &chain, KeyDirection::Press).await?,
-        Command::Keyup { chain } => run_key(backend, &chain, KeyDirection::Release).await?,
-        Command::Type { delay, text } => {
+        Command::Key {
+            clearmodifiers,
+            chain,
+        } => {
+            if clearmodifiers {
+                clear_modifiers(backend).await;
+            }
+            run_key(backend, &chain, KeyDirection::PressRelease).await?;
+        }
+        Command::Keydown {
+            clearmodifiers,
+            chain,
+        } => {
+            if clearmodifiers {
+                clear_modifiers(backend).await;
+            }
+            run_key(backend, &chain, KeyDirection::Press).await?;
+        }
+        Command::Keyup {
+            clearmodifiers,
+            chain,
+        } => {
+            if clearmodifiers {
+                clear_modifiers(backend).await;
+            }
+            run_key(backend, &chain, KeyDirection::Release).await?;
+        }
+        Command::Type {
+            delay,
+            file,
+            clearmodifiers,
+            text,
+        } => {
+            let resolved = resolve_type_input(file, text)?;
+            if clearmodifiers {
+                clear_modifiers(backend).await;
+            }
             backend
-                .type_text(&text, Duration::from_millis(delay))
+                .type_text(&resolved, Duration::from_millis(delay))
                 .await?;
         }
         Command::Mousemove { relative, x, y } => {
@@ -107,6 +140,53 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
         Command::Windowclose { id } => backend.close_window(&WindowId(id)).await?,
     }
     Ok(())
+}
+
+/// Approximates xdotool's --clearmodifiers. Wayland doesn't let a normal
+/// client query the compositor's current modifier state, so we can't do the
+/// "save + restore" dance xdotool does. Best effort: release every standard
+/// modifier unconditionally, ignoring backend errors per-key (a modifier
+/// that isn't in the keymap is a no-op, not a user-visible failure).
+async fn clear_modifiers(backend: &dyn Backend) {
+    const STANDARD_MODIFIERS: &[&str] = &[
+        "Control_L",
+        "Control_R",
+        "Shift_L",
+        "Shift_R",
+        "Alt_L",
+        "Alt_R",
+        "Super_L",
+        "Super_R",
+        "ISO_Level3_Shift",
+    ];
+    for sym in STANDARD_MODIFIERS {
+        let _ = backend.key(sym, KeyDirection::Release).await;
+    }
+}
+
+/// Resolve the text to type: from --file (path or `-` for stdin) or the
+/// positional argument. clap enforces mutual exclusion; this function just
+/// dispatches and errors if neither source is present.
+fn resolve_type_input(file: Option<String>, text: Option<String>) -> Result<String> {
+    use std::io::Read;
+    match (file, text) {
+        (Some(path), _) => {
+            if path == "-" {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .map_err(|e| WdoError::InvalidArg(format!("failed to read stdin: {e}")))?;
+                Ok(buf)
+            } else {
+                std::fs::read_to_string(&path)
+                    .map_err(|e| WdoError::InvalidArg(format!("failed to read {path}: {e}")))
+            }
+        }
+        (None, Some(t)) => Ok(t),
+        (None, None) => Err(WdoError::InvalidArg(
+            "type requires either --file <path> or a positional text argument".into(),
+        )),
+    }
 }
 
 // Press modifiers, then the key, then release in reverse — matches xdotool

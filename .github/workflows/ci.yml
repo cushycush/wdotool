@@ -47,3 +47,66 @@ jobs:
 
       - name: cargo test
         run: cargo test --all-targets --locked
+
+  integration:
+    name: wlroots backend boot (cage)
+    # Runs a headless wlroots compositor (cage), spawns wdotool inside it,
+    # and asserts the wlroots backend actually binds its globals. Catches
+    # regressions that fmt/clippy/unit tests can't — e.g. broken registry
+    # handlers or protocol version mismatches.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            cage
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: cargo build
+        run: cargo build --locked
+
+      - name: wdotool info under headless cage
+        env:
+          # wlroots software-renders on headless backends when no DRM/libinput
+          # is available — perfect for CI runners.
+          WLR_BACKENDS: headless
+          WLR_LIBINPUT_NO_DEVICES: "1"
+          WLR_RENDERER: pixman
+          # Cage wants a writable XDG runtime dir.
+          XDG_RUNTIME_DIR: /tmp
+        run: |
+          set -euo pipefail
+          chmod 0700 /tmp || true
+
+          # Run wdotool info inside cage; cage exits when the child does.
+          # Redirect cage's compositor-side chatter to stderr so grep sees
+          # only wdotool's own output.
+          out="$(cage -- ./target/debug/wdotool info 2>cage.log)"
+          echo "--- wdotool output ---"
+          echo "$out"
+          echo "--- cage log ---"
+          cat cage.log || true
+
+          echo "$out" | grep -q 'backend:  wlroots' \
+            || { echo "::error::wlroots backend did not boot under cage"; exit 1; }
+          echo "$out" | grep -q 'pointer_move_relative: true' \
+            || { echo "::error::virtual-pointer protocol not bound"; exit 1; }
+          echo "$out" | grep -q 'key_input:             true' \
+            || { echo "::error::virtual-keyboard protocol not bound"; exit 1; }

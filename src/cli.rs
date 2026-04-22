@@ -23,20 +23,43 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Press and release a key chain (e.g. "ctrl+c").
-    Key { chain: String },
+    Key {
+        /// Release stuck modifiers (Ctrl/Shift/Alt/Super/AltGr) before the op.
+        /// Approximates xdotool's --clearmodifiers — unlike xdotool we can't
+        /// observe current modifier state on Wayland, so this unconditionally
+        /// releases the standard set.
+        #[arg(long)]
+        clearmodifiers: bool,
+        chain: String,
+    },
 
     /// Press a key chain without releasing.
-    Keydown { chain: String },
+    Keydown {
+        #[arg(long)]
+        clearmodifiers: bool,
+        chain: String,
+    },
 
     /// Release a previously pressed key chain.
-    Keyup { chain: String },
+    Keyup {
+        #[arg(long)]
+        clearmodifiers: bool,
+        chain: String,
+    },
 
     /// Type a literal string.
     Type {
         /// Delay between characters in milliseconds.
         #[arg(long, default_value_t = 12)]
         delay: u64,
-        text: String,
+        /// Read the text from a file instead of the positional arg.
+        /// Use `-` to read from stdin. Mutually exclusive with the text arg.
+        #[arg(long, conflicts_with = "text")]
+        file: Option<String>,
+        /// See `key --clearmodifiers`.
+        #[arg(long)]
+        clearmodifiers: bool,
+        text: Option<String>,
     },
 
     /// Move the mouse to (x, y) or by (dx, dy) with --relative.

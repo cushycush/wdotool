@@ -424,7 +424,7 @@ fn do_key(
 ) -> Result<()> {
     let vk = vk_obj.as_ref().ok_or(WdoError::NotSupported {
         backend: NAME,
-        what: "no zwp_virtual_keyboard_v1 bound",
+        what: "compositor does not expose zwp_virtual_keyboard_v1. Sway/Hyprland/river/Wayfire do; GNOME/KDE do not — try --backend libei on those",
     })?;
     let keymap = keymap.ok_or(WdoError::NotSupported {
         backend: NAME,
@@ -483,7 +483,7 @@ fn do_type_text(
 ) -> Result<()> {
     let vk = vk_obj.as_ref().ok_or(WdoError::NotSupported {
         backend: NAME,
-        what: "no zwp_virtual_keyboard_v1 bound",
+        what: "compositor does not expose zwp_virtual_keyboard_v1. Sway/Hyprland/river/Wayfire do; GNOME/KDE do not — try --backend libei on those",
     })?;
 
     // Collect unique chars in order of first appearance so the keycode table
@@ -541,7 +541,8 @@ fn do_mouse_move(
 ) -> Result<()> {
     let vp = vp_obj.as_ref().ok_or(WdoError::NotSupported {
         backend: NAME,
-        what: "no zwlr_virtual_pointer_v1 bound",
+        what:
+            "compositor does not expose zwlr_virtual_pointer_v1. Try --backend libei on GNOME/KDE",
     })?;
     let time = millis_monotonic();
     if absolute {
@@ -568,7 +569,8 @@ fn do_mouse_button(
 ) -> Result<()> {
     let vp = vp_obj.as_ref().ok_or(WdoError::NotSupported {
         backend: NAME,
-        what: "no zwlr_virtual_pointer_v1 bound",
+        what:
+            "compositor does not expose zwlr_virtual_pointer_v1. Try --backend libei on GNOME/KDE",
     })?;
     let code = match btn {
         MouseButton::Left => 0x110,
@@ -624,7 +626,8 @@ fn do_scroll(
 ) -> Result<()> {
     let vp = vp_obj.as_ref().ok_or(WdoError::NotSupported {
         backend: NAME,
-        what: "no zwlr_virtual_pointer_v1 bound",
+        what:
+            "compositor does not expose zwlr_virtual_pointer_v1. Try --backend libei on GNOME/KDE",
     })?;
     let time = millis_monotonic();
     if dx != 0.0 {

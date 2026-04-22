@@ -108,7 +108,12 @@ impl LibeiBackend {
             Err(_) => {
                 return Err(WdoError::Backend {
                     backend: NAME,
-                    source: anyhow::anyhow!("timed out waiting for libei device"),
+                    source: anyhow::anyhow!(
+                        "timed out waiting for libei device.\n\
+                         Common cause: the RemoteDesktop portal dialog was \
+                         dismissed or denied. Try again and accept, or check \
+                         your desktop's privacy / remote-desktop settings."
+                    ),
                 });
             }
         }
@@ -279,9 +284,26 @@ async fn open_context() -> Result<ei::Context> {
 }
 
 fn portal_err(e: ashpd::Error) -> WdoError {
+    let msg = e.to_string();
+    // ashpd's wording for a missing portal backend is stable enough to match on.
+    // Add actionable next-steps for the common compositors.
+    let hint = if msg.contains("RemoteDesktop") || msg.contains("portal") {
+        Some(
+            "\n\nThe compositor isn't exposing the RemoteDesktop portal. Fix:\n  \
+             GNOME: install xdg-desktop-portal-gnome (most distros ship it)\n  \
+             KDE:   install xdg-desktop-portal-kde\n  \
+             Hyprland/Sway/wlroots: RemoteDesktop isn't available on these yet —\n         \
+             pass --backend wlroots to use virtual-keyboard/pointer directly",
+        )
+    } else {
+        None
+    };
     WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: match hint {
+            Some(h) => anyhow::anyhow!("{msg}{h}"),
+            None => anyhow::Error::new(e),
+        },
     }
 }
 
