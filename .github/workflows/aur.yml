@@ -68,7 +68,7 @@ jobs:
           pkgbuild: packaging/aur/PKGBUILD
           commit_username: Matthew Cushing
           commit_email: hgxtymphwn@privaterelay.appleid.com
-          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
           commit_message: "Update to ${{ steps.version.outputs.pkgver }}"
           ssh_keyscan_types: rsa,ecdsa,ed25519
 
