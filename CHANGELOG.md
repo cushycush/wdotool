@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `kde` backend: collapsed the duplicated `activate_window` / `close_window` scaffolding (waiter registration + timeout + error mapping) into a shared `call_action(what, build_script)` helper that generates the request id, builds the script with it, and returns the script's boolean result. Removes the `_keep_action_impl` dead-code placeholder.
 - `kde` backend: target window ids are JSON-encoded when embedded in the generated KWin JavaScript, rather than via Rust's `{:?}` Debug formatter. Rust Debug emits `\u{XXXX}` for non-ASCII, which is Rust syntax, not JS. Current KWin ids are alphanumeric so this has been cosmetic in practice — the change is preventive.
 - `kde` backend: first round of unit tests (3) covering script generation and the JSON-encoding helper.
+- `uinput` backend: dropped the unused `start: Instant` field on `UinputBackend`, the dead `let _ = shift` placeholder in `type_text`, and the unused `char` carried through the resolutions vec. `resolve_keycode` is now a thin wrapper over `find_keysym` (the two previously duplicated the keymap walk). Unit test anchors the `MouseButton → evdev code` mapping so Back/Forward never silently swap.
 
 ## [0.1.5] — 2026-04-22
 

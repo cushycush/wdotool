@@ -7,7 +7,7 @@ use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use input_linux::{
@@ -26,8 +26,6 @@ const DEVICE_NAME: &[u8] = b"wdotool virtual input";
 
 pub struct UinputBackend {
     inner: Arc<Mutex<Inner>>,
-    #[allow(dead_code)]
-    start: Instant,
 }
 
 struct Inner {
@@ -108,7 +106,6 @@ impl UinputBackend {
                 handle,
                 keymap: SafeKeymap(keymap),
             })),
-            start: Instant::now(),
         })
     }
 }
@@ -216,10 +213,10 @@ fn write_events(handle: &UInputHandle<File>, evs: &[InputEvent]) -> Result<()> {
     Ok(())
 }
 
-/// Look up the evdev keycode that produces `name` at level 0 or 1 of the
-/// default keymap. Returns (keycode, needs_shift).
-fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
-    let target = xkb::keysym_from_name(name, xkb::KEYSYM_NO_FLAGS);
+/// Walk the keymap for the evdev keycode (xkb-keycode minus 8) that produces
+/// `target` at level 0 or 1. Returns (keycode, needs_shift). The shift bit is
+/// what the caller uses to decide whether to hold Shift_L around the press.
+fn find_keysym(keymap: &xkb::Keymap, target: xkb::Keysym) -> Option<(u32, bool)> {
     if target.raw() == 0 {
         return None;
     }
@@ -234,19 +231,10 @@ fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
     None
 }
 
-fn find_keysym(keymap: &xkb::Keymap, target: xkb::Keysym) -> Option<(u32, bool)> {
-    if target.raw() == 0 {
-        return None;
-    }
-    for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
-        for level in 0..=1 {
-            let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
-            if syms.contains(&target) {
-                return Some((keycode.saturating_sub(8), level == 1));
-            }
-        }
-    }
-    None
+/// Name-keyed wrapper around `find_keysym` — looks up xkb keysym by its
+/// textual name ("Return", "Shift_L", "U20AC", …).
+fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
+    find_keysym(keymap, xkb::keysym_from_name(name, xkb::KEYSYM_NO_FLAGS))
 }
 
 fn mouse_button_code(btn: MouseButton) -> Option<u16> {
@@ -336,15 +324,14 @@ impl Backend for UinputBackend {
         // uinput has the same limitation as libei: no way to supply a
         // keymap. Each character must already be expressible in the
         // compositor's active layout.
-        let resolutions: Vec<(u32, bool, char)> = {
+        let (resolutions, shift_kc) = {
             let inner = self.inner.lock().unwrap();
-            let shift = resolve_keycode(&inner.keymap.0, "Shift_L").map(|(kc, _)| kc);
-            let mut out = Vec::new();
+            let mut out: Vec<(u32, bool)> = Vec::new();
             let mut missing: Vec<char> = Vec::new();
             for c in text.chars() {
                 let sym = xkb::Keysym::from_char(c);
                 match find_keysym(&inner.keymap.0, sym) {
-                    Some((kc, needs_shift)) => out.push((kc, needs_shift, c)),
+                    Some(pair) => out.push(pair),
                     None => missing.push(c),
                 }
             }
@@ -355,17 +342,12 @@ impl Backend for UinputBackend {
                     missing.iter().take(8).collect::<Vec<_>>()
                 );
             }
-            let _ = shift; // kept above as documentation; looked up per-char below
-            out
-        };
-
-        let shift_kc = {
-            let inner = self.inner.lock().unwrap();
-            resolve_keycode(&inner.keymap.0, "Shift_L").map(|(kc, _)| kc as u16)
+            let shift_kc = resolve_keycode(&inner.keymap.0, "Shift_L").map(|(kc, _)| kc as u16);
+            (out, shift_kc)
         };
 
         let total = resolutions.len();
-        for (idx, (kc, needs_shift, _c)) in resolutions.into_iter().enumerate() {
+        for (idx, (kc, needs_shift)) in resolutions.into_iter().enumerate() {
             // Strictly scope the MutexGuard so it can't straddle the
             // subsequent .await below (MutexGuard is !Send).
             {
@@ -489,5 +471,25 @@ impl Drop for UinputBackend {
         if let Ok(inner) = self.inner.lock() {
             let _ = inner.handle.dev_destroy();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_button_codes_match_linux_input_event_codes() {
+        // These are stable ABI constants from <linux/input-event-codes.h>.
+        // Getting them wrong swaps "back" and "forward" mouse buttons, which
+        // breaks user scripts silently — hence the anchoring test.
+        assert_eq!(mouse_button_code(MouseButton::Left), Some(0x110)); // BTN_LEFT
+        assert_eq!(mouse_button_code(MouseButton::Right), Some(0x111)); // BTN_RIGHT
+        assert_eq!(mouse_button_code(MouseButton::Middle), Some(0x112)); // BTN_MIDDLE
+        assert_eq!(mouse_button_code(MouseButton::Back), Some(0x113)); // BTN_SIDE
+        assert_eq!(mouse_button_code(MouseButton::Forward), Some(0x114)); // BTN_EXTRA
+        // "Other" is intentionally rejected so the caller can produce an
+        // InvalidArg error with the original index.
+        assert_eq!(mouse_button_code(MouseButton::Other(99)), None);
     }
 }
