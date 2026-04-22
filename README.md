@@ -28,8 +28,11 @@ Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backe
 | `windowactivate` / `windowclose` | —       | ✅      | ✅³       | 🧪⁴       | —        |
 
 ¹ libei (and `kde` / `gnome`, which use libei for input) is a sender context; the EIS server owns the keymap. Characters not in the active layout are skipped with a warning.
+
 ² uinput has the same limitation as libei — the kernel doesn't know about keymaps. Best-effort via the env-default xkb layout.
+
 ³ Implemented but unverified on a real Plasma session ([issue #1](https://github.com/cushycush/wdotool/issues/1)).
+
 ⁴ **Experimental.** Requires the companion GNOME Shell extension in `packaging/gnome-extension/wdotool@wdotool.github.io/` — see [issue #2](https://github.com/cushycush/wdotool/issues/2). Shipped but unverified on a live GNOME session; please try it and file issues. Without the extension, `gnome` falls back to bare libei (input only).
 
 ## Install
