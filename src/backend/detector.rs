@@ -1,5 +1,6 @@
 use tracing::{debug, info, warn};
 
+use super::kde::KdeBackend;
 use super::libei::LibeiBackend;
 use super::stub::PendingBackend;
 use super::uinput::UinputBackend;
@@ -104,15 +105,18 @@ pub fn priority(env: &Environment) -> Vec<BackendKind> {
         // wlroots compositors expose protocols libei can't match on these hosts
         order.push(BackendKind::Wlroots);
         order.push(BackendKind::Libei);
+    } else if env.desktop_is("KDE") {
+        // KdeDBus composes libei input + KWin scripting windows, so it's a
+        // strict superset of bare libei on Plasma sessions.
+        order.push(BackendKind::KdeDBus);
+        order.push(BackendKind::Libei);
+        order.push(BackendKind::Wlroots);
     } else {
-        // GNOME, KDE, and portal-capable sessions prefer libei
+        // GNOME and other portal-capable sessions prefer bare libei
         order.push(BackendKind::Libei);
         order.push(BackendKind::Wlroots);
     }
 
-    if env.desktop_is("KDE") {
-        order.push(BackendKind::KdeDBus);
-    }
     if env.desktop_is("GNOME") {
         order.push(BackendKind::GnomeExt);
     }
@@ -163,6 +167,7 @@ async fn build_one(kind: BackendKind) -> Result<DynBackend> {
     match kind {
         BackendKind::Libei => Ok(Box::new(LibeiBackend::try_new().await?)),
         BackendKind::Wlroots => Ok(Box::new(WlrootsBackend::try_new().await?)),
+        BackendKind::KdeDBus => Ok(Box::new(KdeBackend::try_new().await?)),
         BackendKind::Uinput => Ok(Box::new(UinputBackend::try_new()?)),
         // Remaining kinds are still stubs until their real impls land.
         _ => Ok(Box::new(PendingBackend {
@@ -203,7 +208,9 @@ mod tests {
     }
 
     #[test]
-    fn priority_on_kde_includes_kde_dbus() {
+    fn priority_on_kde_prefers_kde_dbus() {
+        // KdeBackend composes libei input + KWin window scripting, so it
+        // should outrank bare libei on Plasma sessions.
         let env = Environment {
             desktop: Some("KDE".into()),
             session_type: Some("wayland".into()),
@@ -211,8 +218,8 @@ mod tests {
             compositor_hints: vec![],
         };
         let order = priority(&env);
-        assert_eq!(order.first().copied(), Some(BackendKind::Libei));
-        assert!(order.contains(&BackendKind::KdeDBus));
+        assert_eq!(order.first().copied(), Some(BackendKind::KdeDBus));
+        assert!(order.contains(&BackendKind::Libei));
     }
 
     #[test]

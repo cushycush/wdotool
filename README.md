@@ -87,6 +87,14 @@ Binds `zwp_virtual_keyboard_v1`, `zwlr_virtual_pointer_v1`, and `zwlr_foreign_to
 **Requirements:**
 - A wlroots-based compositor that exposes the three protocols above. Sway, Hyprland, river, and Wayfire all do by default.
 
+### kde (KDE Plasma 5/6)
+
+Composes libei (for input) with KWin-scripting window management over D-Bus. Generates small JS snippets, hands them to `org.kde.KWin.Scripting.loadScriptFromText`, runs them, and receives results on a transient `com.wdotool.KdeBridge` D-Bus service the backend registers at startup. Same trick `kdotool` uses, adapted to both the Plasma 6 (`workspace.windowList`, `workspace.activeWindow`) and Plasma 5 (`workspace.clientList`, `workspace.activeClient`) APIs.
+
+**Requirements:**
+- `xdg-desktop-portal-kde` for the libei input path.
+- KWin 5.22+ for the Scripting D-Bus interface.
+
 ### uinput (last resort)
 
 Creates a virtual input device via `/dev/uinput` and writes raw `input_event` structs through the kernel. Compositor-agnostic — works on Wayland, X11, or a bare framebuffer session — but has no focus awareness.
@@ -108,7 +116,7 @@ Creates a virtual input device via `/dev/uinput` and writes raw `input_event` st
 | river        | wlroots       | wlroots        |
 | Wayfire      | wlroots       | wlroots        |
 | GNOME (46+)  | libei         | planned (extension) |
-| KDE Plasma 6 | libei         | planned (D-Bus / KWin) |
+| KDE Plasma 6 | libei         | KWin scripting (D-Bus) |
 | Anything else | uinput        | — |
 
 Backend selection is automatic based on `XDG_CURRENT_DESKTOP` and compositor hints (`SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, etc.). The detector tries the preferred backend first and falls through to alternatives if it fails to bootstrap — use `--backend` to force a specific one.

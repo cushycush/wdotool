@@ -6,6 +6,7 @@ use crate::error::Result;
 use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
 
 pub mod detector;
+pub mod kde;
 pub mod libei;
 pub mod stub;
 pub mod uinput;

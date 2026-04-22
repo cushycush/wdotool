@@ -1279,6 +1279,8 @@ dependencies = [
  "libc",
  "reis",
  "rustix",
+ "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",
@@ -1289,6 +1291,7 @@ dependencies = [
  "wayland-protocols-wlr",
  "xkbcommon",
  "xkeysym",
+ "zbus",
 ]
 
 [[package]]
