@@ -24,6 +24,12 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # Each leg commits + pushes the in-repo PKGBUILD copy back to main.
+      # Running in parallel causes the second push to race against the
+      # first; git-auto-commit-action's rebase-retry sometimes trips on
+      # the push-lock. Serializing keeps this simple and fast enough
+      # (each leg is ~60s).
+      max-parallel: 1
       matrix:
         include:
           - pkgname: wdotool
