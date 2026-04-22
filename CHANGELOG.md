@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-04-22
+
+### Fixed
+- wlroots `type`: control characters (`\n`, `\r`, `\t`, `\x08`, `\x7f`, `\x1b`) now emit via their semantic keysym (Return / Tab / BackSpace / Delete / Escape) through the transient keymap, rather than the raw Unicode control codepoint — most text widgets silently drop the latter. Fixes `wdotool type $'line1\nline2'` silently dropping the newline on Hyprland / Sway.
+
 ### Added
-- wlroots `type`: control characters (`\n`, `\r`, `\t`, `\x08`, `\x7f`, `\x1b`) now emit via their semantic keysym (Return / Tab / BackSpace / Delete / Escape) through the transient keymap, rather than the raw Unicode control codepoint — most text widgets silently drop the latter. Matches xdotool's observable behaviour.
 - wlroots `key U20AC` / `key €`: when the requested keysym isn't present in the user's active layout, fall back to transient-keymap injection (same mechanism as `type`). Applies to the press+release form; standalone `keydown` / `keyup` with Unicode still error, since swapping the keymap mid-chord would change the meaning of any held-down keycode.
-- `gnome` backend: libei input + window management via a companion GNOME Shell extension that exposes `ListWindows` / `GetActiveWindow` / `ActivateWindow` / `CloseWindow` on the session bus. Extension ships under `packaging/gnome-extension/wdotool@wdotool.github.io/` (targets GNOME Shell 45–48). If the extension isn't installed, `gnome` fails fast at init and the detector falls through to bare libei. Backend Rust code wired through `detector::build_one`; detector priority on GNOME is now GnomeExt → Libei → Wlroots, parallel to the KDE path. Unverified on a live GNOME session — see issue #2.
+- **Experimental:** `gnome` backend — libei input + window management via a companion GNOME Shell extension that exposes `ListWindows` / `GetActiveWindow` / `ActivateWindow` / `CloseWindow` on the session bus. Extension ships under `packaging/gnome-extension/wdotool@wdotool.github.io/` (targets GNOME Shell 45–48). If the extension isn't installed, `gnome` fails fast at init and the detector falls through to bare libei. Detector priority on GNOME is now GnomeExt → Libei → Wlroots, parallel to the KDE path. **Not yet dogfooded on a live GNOME session** — please try it and file issues ([#2](https://github.com/cushycush/wdotool/issues/2)).
 
 ### Internal
 - `kde` backend: collapsed the duplicated `activate_window` / `close_window` scaffolding (waiter registration + timeout + error mapping) into a shared `call_action(what, build_script)` helper that generates the request id, builds the script with it, and returns the script's boolean result. Removes the `_keep_action_impl` dead-code placeholder.

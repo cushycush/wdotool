@@ -1,6 +1,6 @@
 [package]
 name = "wdotool"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "xdotool-compatible automation for Wayland"
 license = "MIT OR Apache-2.0"

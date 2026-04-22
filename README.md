@@ -24,13 +24,13 @@ Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backe
 | `mousemove` (absolute)          | ✅       | ✅      | ✅        | ✅        | ✅       |
 | `click` / `mousedown` / `mouseup` | ✅     | ✅      | ✅        | ✅        | ✅       |
 | `scroll`                        | ✅       | ✅      | ✅        | ✅        | ✅       |
-| `search` / `getactivewindow`    | —        | ✅      | ✅³       | ✅⁴       | —        |
-| `windowactivate` / `windowclose` | —       | ✅      | ✅³       | ✅⁴       | —        |
+| `search` / `getactivewindow`    | —        | ✅      | ✅³       | 🧪⁴       | —        |
+| `windowactivate` / `windowclose` | —       | ✅      | ✅³       | 🧪⁴       | —        |
 
 ¹ libei (and `kde` / `gnome`, which use libei for input) is a sender context; the EIS server owns the keymap. Characters not in the active layout are skipped with a warning.
 ² uinput has the same limitation as libei — the kernel doesn't know about keymaps. Best-effort via the env-default xkb layout.
 ³ Implemented but unverified on a real Plasma session ([issue #1](https://github.com/cushycush/wdotool/issues/1)).
-⁴ Requires the companion GNOME Shell extension in `packaging/gnome-extension/wdotool@wdotool.github.io/` — see [issue #2](https://github.com/cushycush/wdotool/issues/2). Without it, `gnome` falls back to bare libei (input only).
+⁴ **Experimental.** Requires the companion GNOME Shell extension in `packaging/gnome-extension/wdotool@wdotool.github.io/` — see [issue #2](https://github.com/cushycush/wdotool/issues/2). Shipped but unverified on a live GNOME session; please try it and file issues. Without the extension, `gnome` falls back to bare libei (input only).
 
 ## Install
 
@@ -125,9 +125,11 @@ Composes libei (for input) with KWin-scripting window management over D-Bus. Gen
 - `xdg-desktop-portal-kde` for the libei input path.
 - KWin 5.22+ for the Scripting D-Bus interface.
 
-### gnome
+### gnome (experimental)
 
 Pairs libei (for input, via GNOME's RemoteDesktop portal) with a companion GNOME Shell extension that exposes `ListWindows` / `GetActiveWindow` / `ActivateWindow` / `CloseWindow` on the session bus. GNOME Shell has no generic external window API, so the extension is mandatory for window management — without it, the detector falls back to bare libei automatically.
+
+**Status:** shipped in v0.1.6 but not yet dogfooded on a live GNOME session (development machine is Hyprland). Please try it and open issues for anything that misbehaves — see [#2](https://github.com/cushycush/wdotool/issues/2).
 
 **Requirements:**
 - `xdg-desktop-portal-gnome` for the libei input path (GNOME 46+ ships it).
