@@ -62,7 +62,7 @@ jobs:
       - name: Publish to AUR
         # Third-party action — review before bumping. Pinned major version so
         # we don't auto-adopt behavior changes.
-        uses: KSXGitHub/github-actions-deploy-aur@v3.1.0
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.3
         with:
           pkgname: wdotool
           pkgbuild: packaging/aur/PKGBUILD
