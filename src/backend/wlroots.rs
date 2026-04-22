@@ -430,11 +430,24 @@ fn do_key(
         backend: NAME,
         what: "no keymap compiled",
     })?;
-    let (keycode, needs_shift) =
-        resolve_keycode(&keymap.0, keysym).ok_or_else(|| WdoError::Keysym {
-            input: keysym.into(),
-            reason: format!("keysym '{keysym}' not found in active keymap"),
-        })?;
+    let (keycode, needs_shift) = match resolve_keycode(&keymap.0, keysym) {
+        Some(pair) => pair,
+        None => {
+            // Fallback: the keysym isn't in the user's layout. If it parses as
+            // a Unicode codepoint (either `U<hex>` notation or a bare char),
+            // inject it via a transient keymap — same trick as `type_text`.
+            // Press/Release-only variants can't safely swap the keymap mid-
+            // chord, so they still error; callers should use `type` or stick
+            // to named keysyms for keydown/keyup flows.
+            if let (Some(c), KeyDirection::PressRelease) = (keysym_unicode_codepoint(keysym), dir) {
+                return do_key_unicode(conn, vk, keymap, c);
+            }
+            return Err(WdoError::Keysym {
+                input: keysym.into(),
+                reason: format!("keysym '{keysym}' not found in active keymap"),
+            });
+        }
+    };
     let shift_kc = resolve_keycode(&keymap.0, "Shift_L").map(|(kc, _)| kc);
 
     let time = millis_monotonic();
@@ -720,8 +733,12 @@ fn build_text_keymap(chars: &[char]) -> (String, std::collections::HashMap<char,
     writeln!(s, "  xkb_symbols \"wdotool\" {{").unwrap();
     writeln!(s, "    name[Group1] = \"wdotool\";").unwrap();
     for (i, c) in chars.iter().enumerate() {
-        // `U<hex>` is xkb's canonical notation for Unicode keysyms.
-        writeln!(s, "    key <K{i}> {{ [ U{:04X} ] }};", *c as u32).unwrap();
+        writeln!(
+            s,
+            "    key <K{i}> {{ [ {} ] }};",
+            char_to_keysym_notation(*c)
+        )
+        .unwrap();
     }
     writeln!(s, "  }};").unwrap();
     writeln!(s, "}};").unwrap();
@@ -731,6 +748,69 @@ fn build_text_keymap(chars: &[char]) -> (String, std::collections::HashMap<char,
         map.insert(*c, i as u32);
     }
     (s, map)
+}
+
+/// Render a single char as an xkb `xkb_symbols` keysym expression. Control
+/// characters map to their semantic keysym name (Return/Tab/BackSpace) so that
+/// applications see the "real" key rather than a Unicode control codepoint —
+/// which most text widgets ignore. Everything else becomes `U<HEX>`, xkb's
+/// canonical notation for Unicode keysyms.
+fn char_to_keysym_notation(c: char) -> String {
+    match c {
+        '\n' | '\r' => "Return".into(),
+        '\t' => "Tab".into(),
+        '\x08' => "BackSpace".into(),
+        '\x7f' => "Delete".into(),
+        '\x1b' => "Escape".into(),
+        _ => format!("U{:04X}", c as u32),
+    }
+}
+
+/// If `name` designates a single Unicode codepoint — either xdotool's `U<hex>`
+/// notation or a bare non-ASCII char — return it. Used to decide when `key`
+/// should fall back to the transient-keymap injection path.
+fn keysym_unicode_codepoint(name: &str) -> Option<char> {
+    if let Some(hex) = name.strip_prefix('U').or_else(|| name.strip_prefix('u')) {
+        if !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            let n = u32::from_str_radix(hex, 16).ok()?;
+            return char::from_u32(n);
+        }
+    }
+    // Bare single non-ASCII char, e.g. `wdotool key €`. Pure ASCII single
+    // chars are handled by the normal keysym path (xkb knows `a` maps to the
+    // `a` keysym), so don't shadow that.
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    if chars.next().is_none() && !first.is_ascii() {
+        return Some(first);
+    }
+    None
+}
+
+/// Transient-keymap fallback for `key` when the keysym isn't in the active
+/// layout. Installs a one-slot keymap containing only `c`, emits press+release
+/// on keycode 0, then restores the caller's keymap.
+fn do_key_unicode(
+    conn: &Connection,
+    vk: &vk::ZwpVirtualKeyboardV1,
+    default_keymap: &SafeKeymap,
+    c: char,
+) -> Result<()> {
+    let (keymap_text, _) = build_text_keymap(&[c]);
+    upload_keymap_text(vk, &keymap_text)?;
+    conn.flush().map_err(wayland_io_err)?;
+    // Same 20ms budget as type_text — compositor needs a beat to parse.
+    std::thread::sleep(Duration::from_millis(20));
+
+    let t = millis_monotonic();
+    vk.key(t, 0, 1);
+    vk.key(t, 0, 0);
+    conn.flush().map_err(wayland_io_err)?;
+
+    // Restore so a subsequent `key <named>` in the same process still works.
+    let _ = install_keymap(vk, default_keymap);
+    let _ = conn.flush();
+    Ok(())
 }
 
 /// Write a keymap string to a sealed memfd and upload it via the virtual
@@ -999,6 +1079,39 @@ mod tests {
     fn text_keymap_minimum_is_eight() {
         let (text, _) = build_text_keymap(&['x']);
         assert!(text.contains("minimum = 8;"));
+    }
+
+    #[test]
+    fn text_keymap_control_chars_use_semantic_keysyms() {
+        // `\n` in a text stream should behave like pressing Return, not like
+        // injecting the U+000A control codepoint — most text widgets drop the
+        // latter silently. Same for Tab / BackSpace / Delete / Escape.
+        let (text, _) = build_text_keymap(&['\n', '\t', '\x08', '\x7f', '\x1b']);
+        assert!(text.contains("[ Return ]"));
+        assert!(text.contains("[ Tab ]"));
+        assert!(text.contains("[ BackSpace ]"));
+        assert!(text.contains("[ Delete ]"));
+        assert!(text.contains("[ Escape ]"));
+        // And none of the raw Unicode forms for those codepoints.
+        assert!(!text.contains("U000A"));
+        assert!(!text.contains("U0009"));
+        assert!(!text.contains("U0008"));
+    }
+
+    #[test]
+    fn keysym_unicode_codepoint_accepts_u_hex_and_bare_char() {
+        assert_eq!(keysym_unicode_codepoint("U20AC"), Some('€'));
+        assert_eq!(keysym_unicode_codepoint("u20ac"), Some('€'));
+        assert_eq!(keysym_unicode_codepoint("U0041"), Some('A'));
+        assert_eq!(keysym_unicode_codepoint("€"), Some('€'));
+        // ASCII single chars stay on the normal keysym path — not a Unicode fallback.
+        assert_eq!(keysym_unicode_codepoint("a"), None);
+        // Named keysyms are not Unicode codepoints.
+        assert_eq!(keysym_unicode_codepoint("Return"), None);
+        assert_eq!(keysym_unicode_codepoint("Shift_L"), None);
+        // Malformed `U<hex>` shouldn't accidentally match.
+        assert_eq!(keysym_unicode_codepoint("Ughhh"), None);
+        assert_eq!(keysym_unicode_codepoint("U"), None);
     }
 }
 
