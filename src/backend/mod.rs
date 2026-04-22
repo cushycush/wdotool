@@ -8,6 +8,7 @@ use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo
 pub mod detector;
 pub mod libei;
 pub mod stub;
+pub mod uinput;
 pub mod wlroots;
 
 #[async_trait]

@@ -2,6 +2,7 @@ use tracing::{debug, info, warn};
 
 use super::libei::LibeiBackend;
 use super::stub::PendingBackend;
+use super::uinput::UinputBackend;
 use super::wlroots::WlrootsBackend;
 use super::DynBackend;
 use crate::error::{Result, WdoError};
@@ -162,6 +163,7 @@ async fn build_one(kind: BackendKind) -> Result<DynBackend> {
     match kind {
         BackendKind::Libei => Ok(Box::new(LibeiBackend::try_new().await?)),
         BackendKind::Wlroots => Ok(Box::new(WlrootsBackend::try_new().await?)),
+        BackendKind::Uinput => Ok(Box::new(UinputBackend::try_new()?)),
         // Remaining kinds are still stubs until their real impls land.
         _ => Ok(Box::new(PendingBackend {
             name: kind.label(),

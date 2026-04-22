@@ -12,19 +12,19 @@ An xdotool-compatible input automation CLI for Wayland, built on the protocols t
 
 Early but usable. Tested on Hyprland. Current surface:
 
-| Feature                         | libei | wlroots | uinput   |
-| ------------------------------- | ----- | ------- | -------- |
-| `key` / `keydown` / `keyup`     | ✅    | ✅      | planned  |
-| `type` (Unicode via keymap)     | partial¹ | ✅      | planned² |
-| `mousemove` (relative)          | ✅    | ✅      | planned  |
-| `mousemove` (absolute)          | ✅    | ✅³     | planned  |
-| `click` / `mousedown` / `mouseup` | ✅    | ✅      | planned  |
-| `scroll`                        | ✅    | ✅      | planned  |
-| `search` / `getactivewindow`    | —     | ✅      | —        |
-| `windowactivate` / `windowclose` | —     | ✅      | —        |
+| Feature                         | libei    | wlroots | uinput   |
+| ------------------------------- | -------- | ------- | -------- |
+| `key` / `keydown` / `keyup`     | ✅       | ✅      | ✅       |
+| `type` (Unicode via keymap)     | partial¹ | ✅      | partial² |
+| `mousemove` (relative)          | ✅       | ✅      | ✅       |
+| `mousemove` (absolute)          | ✅       | ✅³     | ✅       |
+| `click` / `mousedown` / `mouseup` | ✅     | ✅      | ✅       |
+| `scroll`                        | ✅       | ✅      | ✅       |
+| `search` / `getactivewindow`    | —        | ✅      | —        |
+| `windowactivate` / `windowclose` | —       | ✅      | —        |
 
 ¹ libei is a sender context; the EIS server owns the keymap. Characters not in the active layout are skipped with a warning.
-² uinput has the same limitation as libei — the kernel doesn't know about keymaps.
+² uinput has the same limitation as libei — the kernel doesn't know about keymaps. Best-effort via the env-default xkb layout.
 ³ wlroots absolute pointer needs output geometry to be meaningful; currently uses a 10,000×10,000 logical extent as a placeholder.
 
 ## Install
@@ -87,9 +87,17 @@ Binds `zwp_virtual_keyboard_v1`, `zwlr_virtual_pointer_v1`, and `zwlr_foreign_to
 **Requirements:**
 - A wlroots-based compositor that exposes the three protocols above. Sway, Hyprland, river, and Wayfire all do by default.
 
-### uinput (last resort — planned)
+### uinput (last resort)
 
-Creates a virtual input device via `/dev/uinput`. Compositor-agnostic but has no focus awareness and needs permission to open the device (either `input`-group membership or a udev rule).
+Creates a virtual input device via `/dev/uinput` and writes raw `input_event` structs through the kernel. Compositor-agnostic — works on Wayland, X11, or a bare framebuffer session — but has no focus awareness.
+
+**Requirements:**
+- Write access to `/dev/uinput`. The usual setup is `usermod -aG uinput $USER` (or `input` on some distros) plus a udev rule if the device isn't created with the group by default:
+  ```
+  KERNEL=="uinput", GROUP="uinput", MODE="0660"
+  ```
+  On Arch with `systemd-tmpfiles`, `uaccess` tags work too.
+- xkb configuration present on the system (for keysym → keycode translation). Installed by default on every Wayland/X11 install.
 
 ## Supported compositors
 
@@ -101,7 +109,7 @@ Creates a virtual input device via `/dev/uinput`. Compositor-agnostic but has no
 | Wayfire      | wlroots       | wlroots        |
 | GNOME (46+)  | libei         | planned (extension) |
 | KDE Plasma 6 | libei         | planned (D-Bus / KWin) |
-| Anything else | uinput (planned) | — |
+| Anything else | uinput        | — |
 
 Backend selection is automatic based on `XDG_CURRENT_DESKTOP` and compositor hints (`SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, etc.). The detector tries the preferred backend first and falls through to alternatives if it fails to bootstrap — use `--backend` to force a specific one.
 
