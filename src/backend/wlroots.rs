@@ -117,6 +117,11 @@ enum Command {
         dir: KeyDirection,
         reply: oneshot::Sender<Result<()>>,
     },
+    TypeText {
+        text: String,
+        delay: Duration,
+        reply: oneshot::Sender<Result<()>>,
+    },
     MouseMove {
         x: i32,
         y: i32,
@@ -253,7 +258,10 @@ fn worker_main(
 
     let caps = Capabilities {
         key_input: vk_obj.is_some() && keymap.is_some(),
-        text_input: false,
+        // text_input works via transient keymap injection as long as the
+        // virtual keyboard itself is usable; no dependency on the default
+        // keymap because we swap our own in at type time.
+        text_input: vk_obj.is_some(),
         pointer_move_absolute: vp_obj.is_some(),
         pointer_move_relative: vp_obj.is_some(),
         pointer_button: vp_obj.is_some(),
@@ -278,6 +286,10 @@ fn worker_main(
             Command::Shutdown => break,
             Command::Key { keysym, dir, reply } => {
                 let res = do_key(&conn, &vk_obj, keymap.as_ref(), &keysym, dir);
+                let _ = reply.send(res);
+            }
+            Command::TypeText { text, delay, reply } => {
+                let res = do_type_text(&conn, &vk_obj, keymap.as_ref(), &text, delay);
                 let _ = reply.send(res);
             }
             Command::MouseMove {
@@ -431,6 +443,63 @@ fn do_key(
     Ok(())
 }
 
+fn do_type_text(
+    conn: &Connection,
+    vk_obj: &Option<vk::ZwpVirtualKeyboardV1>,
+    default_keymap: Option<&SafeKeymap>,
+    text: &str,
+    delay: Duration,
+) -> Result<()> {
+    let vk = vk_obj.as_ref().ok_or(WdoError::NotSupported {
+        backend: NAME,
+        what: "no zwp_virtual_keyboard_v1 bound",
+    })?;
+
+    // Collect unique chars in order of first appearance so the keycode table
+    // stays compact and reproducible.
+    let mut unique: Vec<char> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for c in text.chars() {
+        if seen.insert(c) {
+            unique.push(c);
+        }
+    }
+    if unique.is_empty() {
+        return Ok(());
+    }
+
+    let (keymap_text, char_to_code) = build_text_keymap(&unique);
+    upload_keymap_text(vk, &keymap_text)?;
+    conn.flush().map_err(wayland_io_err)?;
+
+    // The compositor needs a moment to parse the new keymap before our
+    // first key event arrives. A full roundtrip would be ideal but we
+    // don't have the event queue here; a short sleep matches what wtype
+    // does and works in practice on Hyprland/Sway/KDE.
+    std::thread::sleep(Duration::from_millis(20));
+
+    for (idx, c) in text.chars().enumerate() {
+        let kc = *char_to_code.get(&c).expect("char mapped above");
+        let t = millis_monotonic();
+        vk.key(t, kc, 1);
+        vk.key(t, kc, 0);
+        conn.flush().map_err(wayland_io_err)?;
+        // Skip the tail-sleep on the last char so total latency stays tight.
+        if !delay.is_zero() && idx + 1 < text.chars().count() {
+            std::thread::sleep(delay);
+        }
+    }
+
+    // Restore the default keymap so a subsequent `key` command in the same
+    // process still resolves against normal symbols. For single-shot CLI
+    // use this is cosmetic, but it's cheap and keeps state coherent.
+    if let Some(km) = default_keymap {
+        let _ = install_keymap(vk, km);
+        let _ = conn.flush();
+    }
+    Ok(())
+}
+
 fn do_mouse_move(
     conn: &Connection,
     vp_obj: &Option<vp::ZwlrVirtualPointerV1>,
@@ -563,7 +632,56 @@ fn compile_keymap() -> Result<SafeKeymap> {
 
 fn install_keymap(vk_obj: &vk::ZwpVirtualKeyboardV1, keymap: &SafeKeymap) -> Result<()> {
     let as_string = keymap.0.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1);
-    let bytes = as_string.as_bytes();
+    upload_keymap_text(vk_obj, &as_string)
+}
+
+/// Generate an xkb_keymap text where each unique input character gets its own
+/// keycode at level 0 (no modifiers needed). Matches the trick wtype uses.
+///
+/// Returns the keymap text plus a map from char to the evdev-style keycode the
+/// virtual keyboard should emit to produce that character.
+fn build_text_keymap(chars: &[char]) -> (String, std::collections::HashMap<char, u32>) {
+    use std::fmt::Write as _;
+
+    let mut s = String::new();
+    // xkb requires minimum >= 8; keycode N in xkb terms = evdev N - 8.
+    let min_xkb: u32 = 8;
+    // Pad max by a few so compositors that reject tight ranges are happy.
+    let max_xkb: u32 = min_xkb + chars.len() as u32 + 7;
+
+    writeln!(s, "xkb_keymap {{").unwrap();
+    writeln!(s, "  xkb_keycodes \"wdotool\" {{").unwrap();
+    writeln!(s, "    minimum = {};", min_xkb).unwrap();
+    writeln!(s, "    maximum = {};", max_xkb).unwrap();
+    for i in 0..chars.len() {
+        writeln!(s, "    <K{i}> = {};", min_xkb + i as u32).unwrap();
+    }
+    writeln!(s, "  }};").unwrap();
+    writeln!(s, "  xkb_types \"wdotool\" {{ include \"complete\" }};").unwrap();
+    writeln!(s, "  xkb_compatibility \"wdotool\" {{ include \"complete\" }};").unwrap();
+    writeln!(s, "  xkb_symbols \"wdotool\" {{").unwrap();
+    writeln!(s, "    name[Group1] = \"wdotool\";").unwrap();
+    for (i, c) in chars.iter().enumerate() {
+        // `U<hex>` is xkb's canonical notation for Unicode keysyms.
+        writeln!(s, "    key <K{i}> {{ [ U{:04X} ] }};", *c as u32).unwrap();
+    }
+    writeln!(s, "  }};").unwrap();
+    writeln!(s, "}};").unwrap();
+
+    let mut map = std::collections::HashMap::with_capacity(chars.len());
+    for (i, c) in chars.iter().enumerate() {
+        map.insert(*c, i as u32);
+    }
+    (s, map)
+}
+
+/// Write a keymap string to a sealed memfd and upload it via the virtual
+/// keyboard's `keymap` request.
+fn upload_keymap_text(
+    vk_obj: &vk::ZwpVirtualKeyboardV1,
+    keymap_text: &str,
+) -> Result<()> {
+    let bytes = keymap_text.as_bytes();
     let fd = rustix::fs::memfd_create(
         "wdotool-keymap",
         MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
@@ -572,14 +690,11 @@ fn install_keymap(vk_obj: &vk::ZwpVirtualKeyboardV1, keymap: &SafeKeymap) -> Res
         backend: NAME,
         source: anyhow::Error::new(e),
     })?;
-    // memfd_create gives us a raw fd; wrap in a File for easy writing.
     let mut file = std::fs::File::from(fd);
     file.write_all(bytes).map_err(wayland_io_err)?;
-    // Include the NUL terminator the protocol expects.
     file.write_all(&[0u8]).map_err(wayland_io_err)?;
     file.flush().ok();
     let size = bytes.len() as u32 + 1;
-    // Seal so the compositor trusts the file won't change under it.
     let _ = rustix::fs::fcntl_add_seals(
         file.as_fd(),
         SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE,
@@ -769,6 +884,32 @@ impl Dispatch<ft_handle::ZwlrForeignToplevelHandleV1, ()> for State {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_keymap_maps_each_char_to_own_keycode() {
+        let (text, map) = build_text_keymap(&['a', 'B', '!', '€']);
+        // Each char gets a distinct keycode starting at 0.
+        assert_eq!(map[&'a'], 0);
+        assert_eq!(map[&'B'], 1);
+        assert_eq!(map[&'!'], 2);
+        assert_eq!(map[&'€'], 3);
+        // The keymap includes a Unicode keysym for the euro sign (U+20AC).
+        assert!(text.contains("U20AC"));
+        assert!(text.contains("U0061")); // 'a'
+        assert!(text.contains("U0042")); // 'B'
+        assert!(text.contains("xkb_types \"wdotool\" { include \"complete\" }"));
+    }
+
+    #[test]
+    fn text_keymap_minimum_is_eight() {
+        let (text, _) = build_text_keymap(&['x']);
+        assert!(text.contains("minimum = 8;"));
+    }
+}
+
 // Manager + per-seat object interfaces that either emit no events or emit
 // events we don't care about for automation.
 delegate_noop!(State: vk_mgr::ZwpVirtualKeyboardManagerV1);
@@ -793,11 +934,9 @@ impl Backend for WlrootsBackend {
         self.send(|reply| Command::Key { keysym, dir, reply }).await
     }
 
-    async fn type_text(&self, _text: &str, _delay: Duration) -> Result<()> {
-        Err(WdoError::NotSupported {
-            backend: NAME,
-            what: "type_text — pending Step 6 (transient keymap injection)",
-        })
+    async fn type_text(&self, text: &str, delay: Duration) -> Result<()> {
+        let text = text.to_string();
+        self.send(|reply| Command::TypeText { text, delay, reply }).await
     }
 
     async fn mouse_move(&self, x: i32, y: i32, absolute: bool) -> Result<()> {

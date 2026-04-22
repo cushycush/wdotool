@@ -365,6 +365,20 @@ fn load_keymap(km: &rev::Keymap) -> Result<xkb::Keymap> {
     Ok(keymap)
 }
 
+/// Find the evdev keycode that produces `target` keysym at level 0 or 1.
+/// Returns (keycode, needs_shift).
+fn find_keysym_in_keymap(keymap: &xkb::Keymap, target: xkb::Keysym) -> Option<(u32, bool)> {
+    for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
+        for level in 0..=1 {
+            let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
+            if syms.iter().any(|k| *k == target) {
+                return Some((keycode.saturating_sub(8), level == 1));
+            }
+        }
+    }
+    None
+}
+
 /// Look up the evdev keycode that produces `name` at level 0 or 1. Returns
 /// (keycode, needs_shift).
 fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
@@ -479,11 +493,76 @@ impl Backend for LibeiBackend {
         })
     }
 
-    async fn type_text(&self, _text: &str, _delay: Duration) -> Result<()> {
-        Err(WdoError::NotSupported {
-            backend: NAME,
-            what: "type_text — pending Step 6 (transient keymap injection)",
-        })
+    async fn type_text(&self, text: &str, delay: Duration) -> Result<()> {
+        // libei is a SENDER context: the EIS server owns the keymap. We can
+        // only emit keycodes that already exist in that keymap, so Unicode
+        // support is strictly bounded by what the server layout covers.
+        //
+        // This is a best-effort fallback. For full Unicode injection, use the
+        // wlroots backend (which CAN install a transient keymap).
+        let resolved: Vec<(u32, bool)> = {
+            let st = self.state.lock().unwrap();
+            let keymap = st.keymap.as_ref().ok_or(WdoError::NotSupported {
+                backend: NAME,
+                what: "no keymap received from EIS",
+            })?;
+            let mut out = Vec::with_capacity(text.chars().count());
+            let mut missing: Vec<char> = Vec::new();
+            for c in text.chars() {
+                let sym = xkb::Keysym::from_char(c);
+                if sym.raw() == 0 {
+                    missing.push(c);
+                    continue;
+                }
+                // resolve_keycode takes a keysym NAME; convert via utf8 repr
+                // when possible, otherwise look up by raw keysym on the keymap.
+                match find_keysym_in_keymap(&keymap.0, sym) {
+                    Some(pair) => out.push(pair),
+                    None => missing.push(c),
+                }
+            }
+            if !missing.is_empty() {
+                warn!(
+                    "libei type_text: {} char(s) not in server keymap: {:?}",
+                    missing.len(),
+                    missing.iter().take(8).collect::<Vec<_>>()
+                );
+            }
+            out
+        };
+
+        let shift_kc = {
+            let st = self.state.lock().unwrap();
+            st.keymap
+                .as_ref()
+                .and_then(|km| resolve_keycode(&km.0, "Shift_L"))
+                .map(|(kc, _)| kc)
+        };
+
+        let chars_count = text.chars().count();
+        for (idx, (keycode, needs_shift)) in resolved.into_iter().enumerate() {
+            self.emit_frame(DeviceChoice::Keyboard, |device, _st| {
+                let Some(kb) = device.interface::<ei::Keyboard>() else {
+                    return;
+                };
+                if needs_shift {
+                    if let Some(kc) = shift_kc {
+                        kb.key(kc, ei::keyboard::KeyState::Press);
+                    }
+                }
+                kb.key(keycode, ei::keyboard::KeyState::Press);
+                kb.key(keycode, ei::keyboard::KeyState::Released);
+                if needs_shift {
+                    if let Some(kc) = shift_kc {
+                        kb.key(kc, ei::keyboard::KeyState::Released);
+                    }
+                }
+            })?;
+            if !delay.is_zero() && idx + 1 < chars_count {
+                tokio::time::sleep(delay).await;
+            }
+        }
+        Ok(())
     }
 
     async fn mouse_move(&self, x: i32, y: i32, absolute: bool) -> Result<()> {
