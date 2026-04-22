@@ -16,7 +16,7 @@ use rustix::fs::{MemfdFlags, SealFlags};
 use tokio::sync::oneshot;
 use tracing::{debug, trace, warn};
 use wayland_client::backend::ObjectId;
-use wayland_client::protocol::{wl_registry, wl_seat};
+use wayland_client::protocol::{wl_output, wl_registry, wl_seat};
 use wayland_client::{
     delegate_noop, event_created_child, Connection, Dispatch, EventQueue, Proxy, QueueHandle,
 };
@@ -178,6 +178,11 @@ struct State {
     // buffer while we're still collecting info for a handle that hasn't
     // emitted `done` yet; keyed by the handle's object id
     pending: HashMap<ObjectId, PendingToplevel>,
+    // Outputs discovered on the registry. `motion_absolute` needs a pixel
+    // extent to make coords meaningful; we use the first output with a
+    // known current mode. Multi-output setups pick whichever output came
+    // back first — documented as a known limitation.
+    outputs: HashMap<ObjectId, OutputInfo>,
 }
 
 #[derive(Default)]
@@ -185,6 +190,23 @@ struct PendingToplevel {
     title: Option<String>,
     app_id: Option<String>,
     activated: bool,
+}
+
+#[derive(Default, Clone, Copy)]
+struct OutputInfo {
+    width: u32,
+    height: u32,
+}
+
+impl State {
+    /// Returns (x_extent, y_extent) for `motion_absolute` based on the first
+    /// output that has a known mode, or None if no output has reported yet.
+    fn primary_extent(&self) -> Option<(u32, u32)> {
+        self.outputs
+            .values()
+            .find(|o| o.width > 0 && o.height > 0)
+            .map(|o| (o.width, o.height))
+    }
 }
 
 // ---- Worker entry point -----------------------------------------------------
@@ -209,6 +231,7 @@ fn worker_main(
         scratch: GlobalsScratch::default(),
         toplevels: HashMap::new(),
         pending: HashMap::new(),
+        outputs: HashMap::new(),
     };
     let _ = display.get_registry(&qh, ());
 
@@ -300,7 +323,13 @@ fn worker_main(
                 absolute,
                 reply,
             } => {
-                let res = do_mouse_move(&conn, &vp_obj, x, y, absolute);
+                // Ensure output modes have arrived before we read them. A
+                // dispatch_pending is cheap — no server roundtrip — and
+                // covers the common case where Mode events arrived during
+                // the initial handshake but more may be queued.
+                let _ = queue.dispatch_pending(&mut state);
+                let extent = state.primary_extent();
+                let res = do_mouse_move(&conn, &vp_obj, x, y, absolute, extent);
                 let _ = reply.send(res);
             }
             Command::MouseButton { btn, dir, reply } => {
@@ -508,6 +537,7 @@ fn do_mouse_move(
     x: i32,
     y: i32,
     absolute: bool,
+    extent: Option<(u32, u32)>,
 ) -> Result<()> {
     let vp = vp_obj.as_ref().ok_or(WdoError::NotSupported {
         backend: NAME,
@@ -515,13 +545,13 @@ fn do_mouse_move(
     })?;
     let time = millis_monotonic();
     if absolute {
-        // Without a known output we don't have a meaningful extent; pick a
-        // large square so callers providing small coords end up near (0,0).
-        // TODO(wlroots): track wl_output dimensions once we bind them.
-        let extent = 10_000;
-        let x = x.clamp(0, extent as i32) as u32;
-        let y = y.clamp(0, extent as i32) as u32;
-        vp.motion_absolute(time, x, y, extent, extent);
+        // Prefer the real primary-output pixel size. Fall back to a 10k square
+        // if the compositor hasn't reported an output mode yet — in that case
+        // callers get scaled coords they can sanity-check against.
+        let (x_extent, y_extent) = extent.unwrap_or((10_000, 10_000));
+        let x = x.clamp(0, x_extent as i32) as u32;
+        let y = y.clamp(0, y_extent as i32) as u32;
+        vp.motion_absolute(time, x, y, x_extent, y_extent);
     } else {
         vp.motion(time, x as f64, y as f64);
     }
@@ -768,6 +798,11 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
                     let seat = registry.bind::<wl_seat::WlSeat, _, _>(name, version.min(7), qh, ());
                     state.scratch.seat = Some(seat);
                 }
+                "wl_output" => {
+                    let output =
+                        registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, ());
+                    state.outputs.insert(output.id(), OutputInfo::default());
+                }
                 "zwp_virtual_keyboard_manager_v1" => {
                     let m = registry.bind::<vk_mgr::ZwpVirtualKeyboardManagerV1, _, _>(
                         name,
@@ -811,6 +846,44 @@ impl Dispatch<wl_seat::WlSeat, ()> for State {
         _: &QueueHandle<Self>,
     ) {
         // We don't care about seat capabilities or name events for automation.
+    }
+}
+
+impl Dispatch<wl_output::WlOutput, ()> for State {
+    fn event(
+        state: &mut Self,
+        output: &wl_output::WlOutput,
+        event: wl_output::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // Only the current mode is meaningful — discard non-current ones so
+        // motion_absolute uses the resolution the output is actually rendering.
+        if let wl_output::Event::Mode {
+            flags,
+            width,
+            height,
+            ..
+        } = event
+        {
+            let is_current = flags
+                .into_result()
+                .map(|f| f.contains(wl_output::Mode::Current))
+                .unwrap_or(false);
+            if is_current {
+                state
+                    .outputs
+                    .entry(output.id())
+                    .or_default()
+                    .width = width.max(0) as u32;
+                state
+                    .outputs
+                    .entry(output.id())
+                    .or_default()
+                    .height = height.max(0) as u32;
+            }
+        }
     }
 }
 
