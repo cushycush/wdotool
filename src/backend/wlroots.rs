@@ -872,16 +872,8 @@ impl Dispatch<wl_output::WlOutput, ()> for State {
                 .map(|f| f.contains(wl_output::Mode::Current))
                 .unwrap_or(false);
             if is_current {
-                state
-                    .outputs
-                    .entry(output.id())
-                    .or_default()
-                    .width = width.max(0) as u32;
-                state
-                    .outputs
-                    .entry(output.id())
-                    .or_default()
-                    .height = height.max(0) as u32;
+                state.outputs.entry(output.id()).or_default().width = width.max(0) as u32;
+                state.outputs.entry(output.id()).or_default().height = height.max(0) as u32;
             }
         }
     }
