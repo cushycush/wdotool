@@ -89,24 +89,35 @@ jobs:
           WLR_BACKENDS: headless
           WLR_LIBINPUT_NO_DEVICES: "1"
           WLR_RENDERER: pixman
-          # Cage wants a writable XDG runtime dir.
-          XDG_RUNTIME_DIR: /tmp
         run: |
-          set -euo pipefail
-          chmod 0700 /tmp || true
+          set -uo pipefail
 
-          # Run wdotool info inside cage; cage exits when the child does.
-          # Redirect cage's compositor-side chatter to stderr so grep sees
-          # only wdotool's own output.
-          out="$(cage -- ./target/debug/wdotool info 2>cage.log)"
-          echo "--- wdotool output ---"
-          echo "$out"
-          echo "--- cage log ---"
-          cat cage.log || true
+          # XDG_RUNTIME_DIR must be a 0700 dir owned by us; /tmp isn't.
+          rt=$(mktemp -d)
+          chmod 0700 "$rt"
+          export XDG_RUNTIME_DIR="$rt"
 
-          echo "$out" | grep -q 'backend:  wlroots' \
+          # Don't let cage's exit code kill the shell — we want to print
+          # both streams regardless so failures are diagnosable.
+          set +e
+          cage -- ./target/debug/wdotool info > wdotool.out 2> cage.log
+          rc=$?
+          set -e
+
+          echo "--- wdotool.out ---"
+          cat wdotool.out
+          echo "--- cage.log ---"
+          cat cage.log
+          echo "--- cage exited with code: $rc ---"
+
+          if [ $rc -ne 0 ]; then
+            echo "::error::cage exited non-zero ($rc)"
+            exit 1
+          fi
+
+          grep -q 'backend:  wlroots' wdotool.out \
             || { echo "::error::wlroots backend did not boot under cage"; exit 1; }
-          echo "$out" | grep -q 'pointer_move_relative: true' \
+          grep -q 'pointer_move_relative: true' wdotool.out \
             || { echo "::error::virtual-pointer protocol not bound"; exit 1; }
-          echo "$out" | grep -q 'key_input:             true' \
+          grep -q 'key_input:             true' wdotool.out \
             || { echo "::error::virtual-keyboard protocol not bound"; exit 1; }
