@@ -230,11 +230,20 @@ impl KdeBackend {
         Ok(Some(parsed.into()))
     }
 
-    async fn action_impl(&self, script: String, what: &'static str) -> Result<()> {
+    /// Register a oneshot waiter, ask the caller to build the matching script
+    /// (so the request id embedded in the JS lines up with the waiter key),
+    /// run it, and return the script's boolean result. Callers map `false`
+    /// onto `WdoError::WindowNotFound` with their own context.
+    async fn call_action(
+        &self,
+        what: &'static str,
+        build_script: impl FnOnce(u64) -> String,
+    ) -> Result<bool> {
         let req_id = self.next_request_id();
         let (tx, rx) = oneshot::channel::<bool>();
         self.pending.lock().await.action_waiters.insert(req_id, tx);
 
+        let script = build_script(req_id);
         self.run_kwin_script(&script).await?;
 
         let ok = tokio::time::timeout(Duration::from_secs(3), rx)
@@ -243,14 +252,8 @@ impl KdeBackend {
                 backend: NAME,
                 source: anyhow::anyhow!("timed out waiting for KWin {what} callback"),
             })?
-            .map_err(|_| WdoError::Backend {
-                backend: NAME,
-                source: anyhow::anyhow!("KWin {what} script aborted before callback"),
-            })?;
-        if !ok {
-            return Err(WdoError::WindowNotFound(format!("{what} target")));
-        }
-        Ok(())
+            .unwrap_or(false);
+        Ok(ok)
     }
 }
 
@@ -320,11 +323,18 @@ fn active_window_script(req_id: u64) -> String {
     )
 }
 
+/// JSON-encode a string as a JS literal. `{:?}` would ~work for ASCII ids but
+/// diverges from JS escape syntax on exotic codepoints; JSON strings are a
+/// subset of JS string literals, so this is always safe to paste in.
+fn js_string_literal(s: &str) -> String {
+    serde_json::to_string(s).expect("serde_json cannot fail on &str")
+}
+
 fn activate_window_script(req_id: u64, target_id: &str) -> String {
     format!(
         r#"
 (function() {{
-  var target = {target:?};
+  var target = {target};
   var list = (typeof workspace.windowList === "function")
     ? workspace.windowList()
     : workspace.clientList();
@@ -348,7 +358,7 @@ fn activate_window_script(req_id: u64, target_id: &str) -> String {
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id,
-        target = target_id
+        target = js_string_literal(target_id)
     )
 }
 
@@ -356,7 +366,7 @@ fn close_window_script(req_id: u64, target_id: &str) -> String {
     format!(
         r#"
 (function() {{
-  var target = {target:?};
+  var target = {target};
   var list = (typeof workspace.windowList === "function")
     ? workspace.windowList()
     : workspace.clientList();
@@ -384,7 +394,7 @@ fn close_window_script(req_id: u64, target_id: &str) -> String {
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id,
-        target = target_id
+        target = js_string_literal(target_id)
     )
 }
 
@@ -434,21 +444,9 @@ impl Backend for KdeBackend {
     }
 
     async fn activate_window(&self, id: &WindowId) -> Result<()> {
-        let req_id = self.next_request_id();
-        let script = activate_window_script(req_id, &id.0);
-        // Need to register the waiter with the SAME req_id the script uses.
-        // action_impl does that, but it generates its own id; reimplement
-        // inline so the ids line up.
-        let (tx, rx) = oneshot::channel::<bool>();
-        self.pending.lock().await.action_waiters.insert(req_id, tx);
-        self.run_kwin_script(&script).await?;
-        let ok = tokio::time::timeout(Duration::from_secs(3), rx)
-            .await
-            .map_err(|_| WdoError::Backend {
-                backend: NAME,
-                source: anyhow::anyhow!("timed out waiting for KWin activate callback"),
-            })?
-            .unwrap_or(false);
+        let ok = self
+            .call_action("activate", |req_id| activate_window_script(req_id, &id.0))
+            .await?;
         if !ok {
             return Err(WdoError::WindowNotFound(id.0.clone()));
         }
@@ -456,18 +454,9 @@ impl Backend for KdeBackend {
     }
 
     async fn close_window(&self, id: &WindowId) -> Result<()> {
-        let req_id = self.next_request_id();
-        let script = close_window_script(req_id, &id.0);
-        let (tx, rx) = oneshot::channel::<bool>();
-        self.pending.lock().await.action_waiters.insert(req_id, tx);
-        self.run_kwin_script(&script).await?;
-        let ok = tokio::time::timeout(Duration::from_secs(3), rx)
-            .await
-            .map_err(|_| WdoError::Backend {
-                backend: NAME,
-                source: anyhow::anyhow!("timed out waiting for KWin close callback"),
-            })?
-            .unwrap_or(false);
+        let ok = self
+            .call_action("close", |req_id| close_window_script(req_id, &id.0))
+            .await?;
         if !ok {
             return Err(WdoError::WindowNotFound(id.0.clone()));
         }
@@ -475,10 +464,55 @@ impl Backend for KdeBackend {
     }
 }
 
-// Keep `action_impl` around for future refactoring even though activate/close
-// currently duplicate its body inline — generic factoring requires returning
-// the req_id so callers can register waiters, which is a TODO.
-#[allow(dead_code)]
-fn _keep_action_impl() {
-    let _ = KdeBackend::action_impl;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_and_active_scripts_embed_request_id_and_bridge_addr() {
+        let s = list_windows_script(42);
+        assert!(s.contains("\"ReportWindows\""));
+        assert!(s.contains(BRIDGE_SERVICE));
+        assert!(s.contains(BRIDGE_PATH));
+        assert!(s.contains(BRIDGE_IFACE));
+        assert!(s.contains("42"));
+        // Uses windowList() / clientList() for Plasma 6 / 5 compatibility.
+        assert!(s.contains("windowList"));
+        assert!(s.contains("clientList"));
+
+        let s = active_window_script(7);
+        assert!(s.contains("\"ReportActive\""));
+        assert!(s.contains("activeWindow"));
+        assert!(s.contains("activeClient"));
+        assert!(s.contains(" 7,"));
+    }
+
+    #[test]
+    fn action_scripts_json_encode_the_target_id() {
+        // A target id with JS-meaningful chars (quotes, backslashes, a newline)
+        // must come out as a valid JS string literal — not a Rust Debug repr.
+        let weird = "ab\"c\\d\ne";
+        let s = activate_window_script(1, weird);
+        // JSON encodes " → \" and \ → \\ and \n → \n, and wraps in double quotes.
+        assert!(s.contains(r#"var target = "ab\"c\\d\ne";"#));
+        assert!(s.contains("ReportAction"));
+        assert!(s.contains("workspace.activeWindow = w"));
+
+        let s = close_window_script(1, weird);
+        assert!(s.contains(r#"var target = "ab\"c\\d\ne";"#));
+        // Plasma 6 uses closeWindow, Plasma 5 uses close — both dispatched.
+        assert!(s.contains("closeWindow"));
+        assert!(s.contains("w.close()"));
+    }
+
+    #[test]
+    fn js_string_literal_is_valid_json() {
+        // The output is always a quoted JSON string, parseable back to the input.
+        for s in ["", "plain", "with \"quotes\"", "unicode ☃ €", "\0\n\t\r"] {
+            let encoded = js_string_literal(s);
+            assert!(encoded.starts_with('"') && encoded.ends_with('"'));
+            let round_trip: String = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(round_trip, s);
+        }
+    }
 }

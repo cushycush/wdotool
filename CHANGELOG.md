@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - wlroots `type`: control characters (`\n`, `\r`, `\t`, `\x08`, `\x7f`, `\x1b`) now emit via their semantic keysym (Return / Tab / BackSpace / Delete / Escape) through the transient keymap, rather than the raw Unicode control codepoint — most text widgets silently drop the latter. Matches xdotool's observable behaviour.
 - wlroots `key U20AC` / `key €`: when the requested keysym isn't present in the user's active layout, fall back to transient-keymap injection (same mechanism as `type`). Applies to the press+release form; standalone `keydown` / `keyup` with Unicode still error, since swapping the keymap mid-chord would change the meaning of any held-down keycode.
 
+### Internal
+- `kde` backend: collapsed the duplicated `activate_window` / `close_window` scaffolding (waiter registration + timeout + error mapping) into a shared `call_action(what, build_script)` helper that generates the request id, builds the script with it, and returns the script's boolean result. Removes the `_keep_action_impl` dead-code placeholder.
+- `kde` backend: target window ids are JSON-encoded when embedded in the generated KWin JavaScript, rather than via Rust's `{:?}` Debug formatter. Rust Debug emits `\u{XXXX}` for non-ASCII, which is Rust syntax, not JS. Current KWin ids are alphanumeric so this has been cosmetic in practice — the change is preventive.
+- `kde` backend: first round of unit tests (3) covering script generation and the JSON-encoding helper.
+
 ## [0.1.5] — 2026-04-22
 
 ### Added
