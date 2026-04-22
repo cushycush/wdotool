@@ -1,0 +1,32 @@
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum WdoError {
+    #[error("no backend available for this environment")]
+    NoBackend,
+
+    #[error("backend '{backend}' does not support: {what}")]
+    NotSupported {
+        backend: &'static str,
+        what: &'static str,
+    },
+
+    #[error("backend '{backend}' failed: {source}")]
+    #[allow(dead_code)] // used by real backends once they land
+    Backend {
+        backend: &'static str,
+        #[source]
+        source: anyhow::Error,
+    },
+
+    #[error("failed to parse key chain '{input}': {reason}")]
+    Keysym { input: String, reason: String },
+
+    #[error("window not found: {0}")]
+    WindowNotFound(String),
+
+    #[error("invalid argument: {0}")]
+    InvalidArg(String),
+}
+
+pub type Result<T, E = WdoError> = std::result::Result<T, E>;

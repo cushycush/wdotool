@@ -1,0 +1,31 @@
+[package]
+name = "wdotool"
+version = "0.1.0"
+edition = "2021"
+description = "xdotool-compatible automation for Wayland"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+ashpd = { version = "0.13", features = ["tokio", "remote_desktop", "screencast"] }
+async-trait = "0.1"
+clap = { version = "4", features = ["derive"] }
+enumflags2 = "0.7"
+futures-util = "0.3"
+reis = { version = "0.6", features = ["tokio"] }
+rustix = { version = "1", features = ["time"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+xkbcommon = { version = "0.9", features = ["wayland"] }
+xkeysym = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

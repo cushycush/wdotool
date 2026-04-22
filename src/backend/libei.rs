@@ -1,0 +1,559 @@
+//! libei input backend via the XDG RemoteDesktop portal.
+//!
+//! The libei event stream isn't `Send` (reis stores `dyn FnOnce` callbacks in
+//! its high-level converter), so a dedicated OS thread runs a single-threaded
+//! tokio runtime to drive the stream. Emit methods run on the caller's thread
+//! — they're synchronous through the `Connection` proxy, which is `Send + Sync`.
+
+use std::os::unix::net::UnixStream;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use ashpd::desktop::remote_desktop::{
+    ConnectToEISOptions, DeviceType, RemoteDesktop, SelectDevicesOptions, StartOptions,
+};
+use ashpd::desktop::{CreateSessionOptions, PersistMode};
+use async_trait::async_trait;
+use enumflags2::BitFlags;
+use futures_util::StreamExt;
+use reis::ei;
+use reis::event::{self as rev, DeviceCapability, EiEvent};
+use tokio::sync::oneshot;
+use tracing::{debug, trace, warn};
+use xkbcommon::xkb;
+
+use super::Backend;
+use crate::error::{Result, WdoError};
+use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
+
+const NAME: &str = "libei";
+
+pub struct LibeiBackend {
+    state: Arc<Mutex<State>>,
+    start: Instant,
+}
+
+// xkb_keymap is documented thread-safe for read operations; we gate access
+// behind the outer State mutex anyway.
+struct SafeKeymap(xkb::Keymap);
+unsafe impl Send for SafeKeymap {}
+unsafe impl Sync for SafeKeymap {}
+
+struct State {
+    connection: rev::Connection,
+    keyboard: Option<rev::Device>,
+    pointer: Option<rev::Device>,
+    pointer_abs: Option<rev::Device>,
+    keymap: Option<SafeKeymap>,
+    sequence: u32,
+}
+
+impl LibeiBackend {
+    pub async fn try_new() -> Result<Self> {
+        // Portal session is async — this has to happen on the caller's tokio
+        // runtime because ashpd uses zbus on the current runtime.
+        let context = open_context().await?;
+
+        // Now cross into a dedicated OS thread that runs its own current-thread
+        // tokio runtime. That thread owns the (!Send) event stream. A oneshot
+        // signals when the first usable device has Resumed.
+        let (connection_tx, connection_rx) = std::sync::mpsc::sync_channel::<InitResult>(1);
+        let (ready_tx, ready_rx) = oneshot::channel::<()>();
+
+        std::thread::Builder::new()
+            .name("wdotool-libei".into())
+            .spawn(move || {
+                let rt = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(err) => {
+                        let _ = connection_tx.send(Err(format!(
+                            "failed to build libei runtime: {err}"
+                        )));
+                        return;
+                    }
+                };
+                rt.block_on(dispatcher(context, connection_tx, ready_tx));
+            })
+            .map_err(|e| WdoError::Backend {
+                backend: NAME,
+                source: anyhow::Error::new(e),
+            })?;
+
+        // Block for the initial connection (fast — no user interaction here).
+        let connection = connection_rx
+            .recv()
+            .map_err(|_| WdoError::Backend {
+                backend: NAME,
+                source: anyhow::anyhow!("dispatcher thread exited before sending state"),
+            })?
+            .map_err(|msg| WdoError::Backend {
+                backend: NAME,
+                source: anyhow::anyhow!(msg),
+            })?;
+
+        let state = connection.state.clone();
+
+        // Wait up to 5s for the first device to resume. No sleep loop — the
+        // dispatcher fires the oneshot exactly when DeviceResumed arrives.
+        match tokio::time::timeout(Duration::from_secs(5), ready_rx).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {
+                return Err(WdoError::Backend {
+                    backend: NAME,
+                    source: anyhow::anyhow!("dispatcher ended before any device resumed"),
+                });
+            }
+            Err(_) => {
+                return Err(WdoError::Backend {
+                    backend: NAME,
+                    source: anyhow::anyhow!("timed out waiting for libei device"),
+                });
+            }
+        }
+
+        Ok(Self {
+            state,
+            start: Instant::now(),
+        })
+    }
+
+    fn timestamp_us(&self) -> u64 {
+        self.start.elapsed().as_micros() as u64
+    }
+
+    fn emit_frame<F>(&self, pick: DeviceChoice, body: F) -> Result<()>
+    where
+        F: FnOnce(&rev::Device, &State),
+    {
+        let mut st = self.state.lock().unwrap();
+        let serial = st.connection.serial();
+        st.sequence = st.sequence.wrapping_add(1);
+        let seq = st.sequence;
+
+        let device = match pick {
+            DeviceChoice::Keyboard => st.keyboard.clone(),
+            DeviceChoice::Pointer => st.pointer.clone(),
+            DeviceChoice::PointerAbsolute => st.pointer_abs.clone(),
+        };
+
+        let Some(device) = device else {
+            return Err(WdoError::NotSupported {
+                backend: NAME,
+                what: pick.missing_error(),
+            });
+        };
+
+        device.device().start_emulating(serial, seq);
+        body(&device, &st);
+        device.device().frame(serial, self.timestamp_us());
+        device.device().stop_emulating(serial);
+        st.connection.flush().map_err(|e| WdoError::Backend {
+            backend: NAME,
+            source: anyhow::anyhow!("ei flush failed: {e}"),
+        })?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DeviceChoice {
+    Keyboard,
+    Pointer,
+    PointerAbsolute,
+}
+
+impl DeviceChoice {
+    fn missing_error(self) -> &'static str {
+        match self {
+            Self::Keyboard => "no keyboard device from EIS",
+            Self::Pointer => "no relative-pointer device from EIS",
+            Self::PointerAbsolute => "no absolute-pointer device from EIS",
+        }
+    }
+}
+
+struct InitOk {
+    state: Arc<Mutex<State>>,
+}
+
+type InitResult = std::result::Result<InitOk, String>;
+
+/// Runs on the dedicated OS thread with a current-thread tokio runtime. Does
+/// the handshake, shares state with the main thread via `Arc<Mutex>`, and
+/// keeps draining events so pings get answered.
+async fn dispatcher(
+    context: ei::Context,
+    init_tx: std::sync::mpsc::SyncSender<InitResult>,
+    ready_tx: oneshot::Sender<()>,
+) {
+    let (connection, mut stream) = match context
+        .handshake_tokio("wdotool", ei::handshake::ContextType::Sender)
+        .await
+    {
+        Ok(pair) => pair,
+        Err(err) => {
+            let _ = init_tx.send(Err(format!("ei handshake failed: {err}")));
+            return;
+        }
+    };
+    let _ = connection.flush();
+
+    let state = Arc::new(Mutex::new(State {
+        connection,
+        keyboard: None,
+        pointer: None,
+        pointer_abs: None,
+        keymap: None,
+        sequence: 0,
+    }));
+
+    if init_tx
+        .send(Ok(InitOk {
+            state: state.clone(),
+        }))
+        .is_err()
+    {
+        return;
+    }
+    drop(init_tx);
+
+    let mut ready_tx = Some(ready_tx);
+    while let Some(result) = stream.next().await {
+        let event = match result {
+            Ok(ev) => ev,
+            Err(err) => {
+                warn!(?err, "libei stream error, ending dispatch");
+                break;
+            }
+        };
+        let mut st = state.lock().unwrap();
+        if handle_event(&mut st, event) {
+            if let Some(tx) = ready_tx.take() {
+                let _ = tx.send(());
+            }
+        }
+    }
+    debug!("libei event stream ended");
+}
+
+async fn open_context() -> Result<ei::Context> {
+    if let Ok(Some(context)) = ei::Context::connect_to_env() {
+        debug!("connected to libei via LIBEI_SOCKET");
+        return Ok(context);
+    }
+
+    debug!("opening RemoteDesktop portal session");
+    let remote = RemoteDesktop::new().await.map_err(portal_err)?;
+    let session = remote
+        .create_session(CreateSessionOptions::default())
+        .await
+        .map_err(portal_err)?;
+    remote
+        .select_devices(
+            &session,
+            SelectDevicesOptions::default()
+                .set_devices(DeviceType::Keyboard | DeviceType::Pointer)
+                .set_persist_mode(PersistMode::DoNot),
+        )
+        .await
+        .map_err(portal_err)?
+        .response()
+        .map_err(portal_err)?;
+    remote
+        .start(&session, None, StartOptions::default())
+        .await
+        .map_err(portal_err)?
+        .response()
+        .map_err(portal_err)?;
+    let fd = remote
+        .connect_to_eis(&session, ConnectToEISOptions::default())
+        .await
+        .map_err(portal_err)?;
+    let stream = UnixStream::from(fd);
+    ei::Context::new(stream).map_err(|e| WdoError::Backend {
+        backend: NAME,
+        source: anyhow::Error::new(e),
+    })
+}
+
+fn portal_err(e: ashpd::Error) -> WdoError {
+    WdoError::Backend {
+        backend: NAME,
+        source: anyhow::Error::new(e),
+    }
+}
+
+/// Returns true when this event transitions state into "ready" (first
+/// DeviceResumed with at least one usable device).
+fn handle_event(st: &mut State, event: EiEvent) -> bool {
+    match event {
+        EiEvent::SeatAdded(ev) => {
+            let caps: BitFlags<DeviceCapability> = DeviceCapability::Keyboard
+                | DeviceCapability::Pointer
+                | DeviceCapability::PointerAbsolute
+                | DeviceCapability::Button
+                | DeviceCapability::Scroll;
+            ev.seat.bind_capabilities(caps);
+            trace!("bound seat capabilities");
+        }
+        EiEvent::DeviceAdded(ev) => {
+            let device = ev.device.clone();
+            if device.has_capability(DeviceCapability::Keyboard) {
+                if let Some(keymap_info) = device.keymap() {
+                    match load_keymap(keymap_info) {
+                        Ok(km) => st.keymap = Some(SafeKeymap(km)),
+                        Err(err) => warn!(?err, "failed to load keymap from EIS"),
+                    }
+                }
+                st.keyboard = Some(device.clone());
+            }
+            if device.has_capability(DeviceCapability::Pointer) {
+                st.pointer = Some(device.clone());
+            }
+            if device.has_capability(DeviceCapability::PointerAbsolute) {
+                st.pointer_abs = Some(device.clone());
+            }
+        }
+        EiEvent::DeviceResumed(_) => {
+            return st.keyboard.is_some() || st.pointer.is_some() || st.pointer_abs.is_some();
+        }
+        EiEvent::DeviceRemoved(ev) => {
+            if st.keyboard.as_ref() == Some(&ev.device) {
+                st.keyboard = None;
+            }
+            if st.pointer.as_ref() == Some(&ev.device) {
+                st.pointer = None;
+            }
+            if st.pointer_abs.as_ref() == Some(&ev.device) {
+                st.pointer_abs = None;
+            }
+        }
+        EiEvent::Disconnected(d) => {
+            warn!(reason = ?d.reason, "EIS disconnected: {:?}", d.explanation);
+        }
+        _ => {}
+    }
+    false
+}
+
+fn load_keymap(km: &rev::Keymap) -> Result<xkb::Keymap> {
+    let fd = km.fd.try_clone().map_err(|e| WdoError::Backend {
+        backend: NAME,
+        source: anyhow::Error::new(e),
+    })?;
+    let ctx = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    let keymap = unsafe {
+        xkb::Keymap::new_from_fd(
+            &ctx,
+            fd,
+            km.size as usize,
+            xkb::KEYMAP_FORMAT_TEXT_V1,
+            xkb::KEYMAP_COMPILE_NO_FLAGS,
+        )
+    }
+    .map_err(|e| WdoError::Backend {
+        backend: NAME,
+        source: anyhow::Error::new(e),
+    })?
+    .ok_or_else(|| WdoError::Backend {
+        backend: NAME,
+        source: anyhow::anyhow!("xkb_keymap_new_from_buffer returned null"),
+    })?;
+    Ok(keymap)
+}
+
+/// Look up the evdev keycode that produces `name` at level 0 or 1. Returns
+/// (keycode, needs_shift).
+fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
+    let target = xkb::keysym_from_name(name, xkb::KEYSYM_NO_FLAGS);
+    if target.raw() == 0 {
+        return None;
+    }
+    for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
+        for level in 0..=1 {
+            let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
+            if syms.iter().any(|k| *k == target) {
+                // Evdev keycodes are xkb keycodes minus 8.
+                return Some((keycode.saturating_sub(8), level == 1));
+            }
+        }
+    }
+    None
+}
+
+fn xdotool_button_to_evdev(btn: MouseButton) -> Option<u32> {
+    // linux/input-event-codes.h
+    const BTN_LEFT: u32 = 0x110;
+    const BTN_RIGHT: u32 = 0x111;
+    const BTN_MIDDLE: u32 = 0x112;
+    const BTN_SIDE: u32 = 0x113; // back
+    const BTN_EXTRA: u32 = 0x114; // forward
+    Some(match btn {
+        MouseButton::Left => BTN_LEFT,
+        MouseButton::Middle => BTN_MIDDLE,
+        MouseButton::Right => BTN_RIGHT,
+        MouseButton::Back => BTN_SIDE,
+        MouseButton::Forward => BTN_EXTRA,
+        MouseButton::Other(_) => return None,
+    })
+}
+
+#[async_trait]
+impl Backend for LibeiBackend {
+    fn name(&self) -> &'static str {
+        NAME
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        let st = self.state.lock().unwrap();
+        Capabilities {
+            key_input: st.keyboard.is_some() && st.keymap.is_some(),
+            text_input: false,
+            pointer_move_absolute: st.pointer_abs.is_some(),
+            pointer_move_relative: st.pointer.is_some(),
+            pointer_button: st.pointer.is_some() || st.pointer_abs.is_some(),
+            scroll: st.pointer.is_some() || st.pointer_abs.is_some(),
+            list_windows: false,
+            active_window: false,
+            activate_window: false,
+            close_window: false,
+        }
+    }
+
+    async fn key(&self, keysym: &str, dir: KeyDirection) -> Result<()> {
+        let (keycode, needs_shift, shift_kc) = {
+            let st = self.state.lock().unwrap();
+            let keymap = st.keymap.as_ref().ok_or(WdoError::NotSupported {
+                backend: NAME,
+                what: "no keymap received from EIS",
+            })?;
+            let (kc, needs_shift) = resolve_keycode(&keymap.0, keysym).ok_or_else(|| {
+                WdoError::Keysym {
+                    input: keysym.into(),
+                    reason: format!("keysym '{keysym}' not found in server keymap"),
+                }
+            })?;
+            let shift_kc = resolve_keycode(&keymap.0, "Shift_L").map(|(kc, _)| kc);
+            (kc, needs_shift, shift_kc)
+        };
+
+        self.emit_frame(DeviceChoice::Keyboard, |device, _st| {
+            let Some(kb) = device.interface::<ei::Keyboard>() else {
+                return;
+            };
+            match dir {
+                KeyDirection::Press => {
+                    if needs_shift {
+                        if let Some(kc) = shift_kc {
+                            kb.key(kc, ei::keyboard::KeyState::Press);
+                        }
+                    }
+                    kb.key(keycode, ei::keyboard::KeyState::Press);
+                }
+                KeyDirection::Release => {
+                    kb.key(keycode, ei::keyboard::KeyState::Released);
+                    if needs_shift {
+                        if let Some(kc) = shift_kc {
+                            kb.key(kc, ei::keyboard::KeyState::Released);
+                        }
+                    }
+                }
+                KeyDirection::PressRelease => {
+                    if needs_shift {
+                        if let Some(kc) = shift_kc {
+                            kb.key(kc, ei::keyboard::KeyState::Press);
+                        }
+                    }
+                    kb.key(keycode, ei::keyboard::KeyState::Press);
+                    kb.key(keycode, ei::keyboard::KeyState::Released);
+                    if needs_shift {
+                        if let Some(kc) = shift_kc {
+                            kb.key(kc, ei::keyboard::KeyState::Released);
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    async fn type_text(&self, _text: &str, _delay: Duration) -> Result<()> {
+        Err(WdoError::NotSupported {
+            backend: NAME,
+            what: "type_text — pending Step 6 (transient keymap injection)",
+        })
+    }
+
+    async fn mouse_move(&self, x: i32, y: i32, absolute: bool) -> Result<()> {
+        if absolute {
+            self.emit_frame(DeviceChoice::PointerAbsolute, |device, _| {
+                if let Some(p) = device.interface::<ei::PointerAbsolute>() {
+                    p.motion_absolute(x as f32, y as f32);
+                }
+            })
+        } else {
+            self.emit_frame(DeviceChoice::Pointer, |device, _| {
+                if let Some(p) = device.interface::<ei::Pointer>() {
+                    p.motion_relative(x as f32, y as f32);
+                }
+            })
+        }
+    }
+
+    async fn mouse_button(&self, btn: MouseButton, dir: KeyDirection) -> Result<()> {
+        let code = xdotool_button_to_evdev(btn).ok_or_else(|| {
+            WdoError::InvalidArg(format!("unsupported mouse button: {btn:?}"))
+        })?;
+        self.emit_frame(DeviceChoice::Pointer, |device, _| {
+            let Some(b) = device.interface::<ei::Button>() else {
+                return;
+            };
+            match dir {
+                KeyDirection::Press => b.button(code, ei::button::ButtonState::Press),
+                KeyDirection::Release => b.button(code, ei::button::ButtonState::Released),
+                KeyDirection::PressRelease => {
+                    b.button(code, ei::button::ButtonState::Press);
+                    b.button(code, ei::button::ButtonState::Released);
+                }
+            }
+        })
+    }
+
+    async fn scroll(&self, dx: f64, dy: f64) -> Result<()> {
+        self.emit_frame(DeviceChoice::Pointer, |device, _| {
+            if let Some(s) = device.interface::<ei::Scroll>() {
+                s.scroll(dx as f32, dy as f32);
+            }
+        })
+    }
+
+    async fn list_windows(&self) -> Result<Vec<WindowInfo>> {
+        Err(WdoError::NotSupported {
+            backend: NAME,
+            what: "list_windows — libei has no window API; pair with a WindowBackend",
+        })
+    }
+
+    async fn active_window(&self) -> Result<Option<WindowInfo>> {
+        Err(WdoError::NotSupported {
+            backend: NAME,
+            what: "active_window — libei has no window API; pair with a WindowBackend",
+        })
+    }
+
+    async fn activate_window(&self, _id: &WindowId) -> Result<()> {
+        Err(WdoError::NotSupported {
+            backend: NAME,
+            what: "activate_window — libei has no window API; pair with a WindowBackend",
+        })
+    }
+
+    async fn close_window(&self, _id: &WindowId) -> Result<()> {
+        Err(WdoError::NotSupported {
+            backend: NAME,
+            what: "close_window — libei has no window API; pair with a WindowBackend",
+        })
+    }
+}
