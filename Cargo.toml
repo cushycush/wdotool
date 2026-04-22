@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "xdotool-compatible automation for Wayland"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/cushycush/wdotool"
+homepage = "https://github.com/cushycush/wdotool"
+readme = "README.md"
+keywords = ["wayland", "xdotool", "automation", "input", "libei"]
+categories = ["command-line-utilities", "os::linux-apis"]
 
 [dependencies]
 anyhow = "1"
@@ -34,3 +39,8 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

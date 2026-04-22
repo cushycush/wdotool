@@ -30,13 +30,19 @@ Early but usable. Tested on Hyprland. Current surface:
 ## Install
 
 ```sh
-# from source
-cargo install --path .
+# Prebuilt binary (x86_64 Linux) — recommended
+curl -LsSf https://github.com/cushycush/wdotool/releases/latest/download/wdotool-installer.sh | sh
 
-# or build locally
+# From crates.io (any arch; builds on install)
+cargo install wdotool
+
+# From source
+git clone https://github.com/cushycush/wdotool && cd wdotool
 cargo build --release
 ./target/release/wdotool --help
 ```
+
+Runtime deps: `libxkbcommon` and `libwayland-client`. Both are universally present on Wayland systems.
 
 ## Usage
 

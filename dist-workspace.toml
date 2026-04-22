@@ -1,0 +1,25 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.31.0"
+# CI backends to support
+ci = "github"
+# Shell installer script hosted on the GitHub Release.
+# Users install via:
+#   curl -LsSf https://github.com/cushycush/wdotool/releases/latest/download/wdotool-installer.sh | sh
+installers = ["shell"]
+# Linux only — wdotool depends on Wayland client libs and /dev/uinput,
+# neither of which exist on macOS or Windows.
+# Starting with x86_64 only; aarch64 needs multi-arch apt setup for the
+# system C libs and isn't worth the CI complexity for the first release.
+targets = ["x86_64-unknown-linux-gnu"]
+# PRs just plan the release; no artifact uploads.
+pr-run-mode = "plan"
+
+# System libraries the build needs on CI runners.
+[dist.dependencies.apt]
+libxkbcommon-dev = "*"
+libwayland-dev = "*"
