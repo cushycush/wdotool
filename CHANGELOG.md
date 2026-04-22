@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-04-22
+
+### Added
+- AUR publish workflow (`.github/workflows/aur.yml`). On every published GitHub Release it computes the new source tarball's sha256, patches `packaging/aur/PKGBUILD`, pushes the update to the AUR, and syncs the patched PKGBUILD back to `main`. Removes the manual per-release PKGBUILD bump.
+
 ## [0.1.2] — 2026-04-22
 
 ### Added
@@ -45,7 +50,8 @@ Initial release.
 - GNOME window backend is not yet implemented.
 - `type_text` Unicode support is full on wlroots (transient keymap) but best-effort on libei/uinput (bounded by the compositor's active keymap).
 
-[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/cushycush/wdotool/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/cushycush/wdotool/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/cushycush/wdotool/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/cushycush/wdotool/releases/tag/v0.1.0
