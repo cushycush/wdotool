@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-04-22
+
+### Added
+- `wdotool type --file <path>`: read the text to type from a file. `--file -` reads from stdin. Mutually exclusive with the positional text arg.
+- `--clearmodifiers` flag on `key`, `keydown`, `keyup`, and `type`. Approximates xdotool's flag — Wayland doesn't expose the compositor's current modifier state to clients, so this releases the standard set (Ctrl/Shift/Alt/Super/AltGr, L+R) unconditionally rather than doing xdotool's save-and-restore dance.
+
+### Changed
+- libei portal-missing errors now name the specific `xdg-desktop-portal-*` package to install per desktop (GNOME / KDE) and redirect Hyprland/Sway users to `--backend wlroots`.
+- libei timeout errors call out the most likely cause (dismissed portal permission dialog).
+- wlroots `NotSupported` errors explain which compositors expose `zwp_virtual_keyboard_v1` / `zwlr_virtual_pointer_v1` and suggest `--backend libei` for GNOME/KDE.
+
 ## [0.1.4] — 2026-04-22
 
 ### Added
@@ -62,7 +73,8 @@ Initial release.
 - GNOME window backend is not yet implemented.
 - `type_text` Unicode support is full on wlroots (transient keymap) but best-effort on libei/uinput (bounded by the compositor's active keymap).
 
-[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/cushycush/wdotool/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/cushycush/wdotool/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/cushycush/wdotool/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/cushycush/wdotool/compare/v0.1.1...v0.1.2
