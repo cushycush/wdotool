@@ -86,7 +86,7 @@ impl Environment {
     }
 
     pub fn has_hint(&self, needle: &str) -> bool {
-        self.compositor_hints.iter().any(|h| *h == needle)
+        self.compositor_hints.contains(&needle)
     }
 }
 
@@ -153,7 +153,11 @@ pub async fn build(env: &Environment, forced: Option<BackendKind>) -> Result<Dyn
                 match build_one(kind).await {
                     Ok(b) => return Ok(b),
                     Err(err) => {
-                        warn!(backend = kind.label(), ?err, "backend unavailable, trying next");
+                        warn!(
+                            backend = kind.label(),
+                            ?err,
+                            "backend unavailable, trying next"
+                        );
                         last_err = Some(err);
                     }
                 }

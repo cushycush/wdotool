@@ -91,10 +91,10 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
         Command::Search { name, class } => {
             let windows = backend.list_windows().await?;
             for w in windows.into_iter().filter(|w| {
-                name.as_deref().map_or(true, |n| w.title.contains(n))
-                    && class.as_deref().map_or(true, |c| {
-                        w.app_id.as_deref().map_or(false, |a| a.contains(c))
-                    })
+                name.as_deref().is_none_or(|n| w.title.contains(n))
+                    && class
+                        .as_deref()
+                        .is_none_or(|c| w.app_id.as_deref().is_some_and(|a| a.contains(c)))
             }) {
                 println!("{}\t{}", w.id, w.title);
             }
@@ -130,9 +130,7 @@ async fn run_key(backend: &dyn Backend, chain: &str, dir: KeyDirection) -> Resul
             for m in &parsed.modifiers {
                 backend.key(m, KeyDirection::Press).await?;
             }
-            backend
-                .key(&parsed.key, KeyDirection::PressRelease)
-                .await?;
+            backend.key(&parsed.key, KeyDirection::PressRelease).await?;
             for m in parsed.modifiers.iter().rev() {
                 backend.key(m, KeyDirection::Release).await?;
             }
@@ -142,7 +140,11 @@ async fn run_key(backend: &dyn Backend, chain: &str, dir: KeyDirection) -> Resul
 }
 
 fn init_tracing(verbose: bool) {
-    let default = if verbose { "wdotool=debug" } else { "wdotool=info,warn" };
+    let default = if verbose {
+        "wdotool=debug"
+    } else {
+        "wdotool=info,warn"
+    };
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)

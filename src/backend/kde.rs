@@ -117,17 +117,24 @@ impl KdeBackend {
         // Input path: libei over the KDE portal. KDE Plasma ships a
         // RemoteDesktop portal implementation, so this bootstraps cleanly
         // on actual KDE sessions.
-        let libei = LibeiBackend::try_new().await.map_err(|err| WdoError::Backend {
-            backend: NAME,
-            source: anyhow::anyhow!("libei input init failed: {err}"),
-        })?;
+        let libei = LibeiBackend::try_new()
+            .await
+            .map_err(|err| WdoError::Backend {
+                backend: NAME,
+                source: anyhow::anyhow!("libei input init failed: {err}"),
+            })?;
         let input_caps = libei.capabilities();
 
         let conn = Connection::session().await.map_err(dbus_err)?;
 
         let pending: Arc<Mutex<PendingState>> = Arc::new(Mutex::new(PendingState::default()));
         conn.object_server()
-            .at(BRIDGE_PATH, Bridge { pending: pending.clone() })
+            .at(
+                BRIDGE_PATH,
+                Bridge {
+                    pending: pending.clone(),
+                },
+            )
             .await
             .map_err(dbus_err)?;
         conn.request_name(BRIDGE_SERVICE).await.map_err(dbus_err)?;
@@ -147,7 +154,9 @@ impl KdeBackend {
     }
 
     async fn run_kwin_script(&self, script: &str) -> Result<()> {
-        let scripting = KwinScriptingProxy::new(&self.conn).await.map_err(dbus_err)?;
+        let scripting = KwinScriptingProxy::new(&self.conn)
+            .await
+            .map_err(dbus_err)?;
         let script_id = scripting
             .load_script_from_text(script, "wdotool")
             .await

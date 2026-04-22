@@ -69,9 +69,8 @@ impl LibeiBackend {
                 {
                     Ok(rt) => rt,
                     Err(err) => {
-                        let _ = connection_tx.send(Err(format!(
-                            "failed to build libei runtime: {err}"
-                        )));
+                        let _ = connection_tx
+                            .send(Err(format!("failed to build libei runtime: {err}")));
                         return;
                     }
                 };
@@ -371,7 +370,7 @@ fn find_keysym_in_keymap(keymap: &xkb::Keymap, target: xkb::Keysym) -> Option<(u
     for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
         for level in 0..=1 {
             let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
-            if syms.iter().any(|k| *k == target) {
+            if syms.contains(&target) {
                 return Some((keycode.saturating_sub(8), level == 1));
             }
         }
@@ -389,7 +388,7 @@ fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
     for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
         for level in 0..=1 {
             let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
-            if syms.iter().any(|k| *k == target) {
+            if syms.contains(&target) {
                 // Evdev keycodes are xkb keycodes minus 8.
                 return Some((keycode.saturating_sub(8), level == 1));
             }
@@ -444,12 +443,11 @@ impl Backend for LibeiBackend {
                 backend: NAME,
                 what: "no keymap received from EIS",
             })?;
-            let (kc, needs_shift) = resolve_keycode(&keymap.0, keysym).ok_or_else(|| {
-                WdoError::Keysym {
+            let (kc, needs_shift) =
+                resolve_keycode(&keymap.0, keysym).ok_or_else(|| WdoError::Keysym {
                     input: keysym.into(),
                     reason: format!("keysym '{keysym}' not found in server keymap"),
-                }
-            })?;
+                })?;
             let shift_kc = resolve_keycode(&keymap.0, "Shift_L").map(|(kc, _)| kc);
             (kc, needs_shift, shift_kc)
         };
@@ -582,9 +580,8 @@ impl Backend for LibeiBackend {
     }
 
     async fn mouse_button(&self, btn: MouseButton, dir: KeyDirection) -> Result<()> {
-        let code = xdotool_button_to_evdev(btn).ok_or_else(|| {
-            WdoError::InvalidArg(format!("unsupported mouse button: {btn:?}"))
-        })?;
+        let code = xdotool_button_to_evdev(btn)
+            .ok_or_else(|| WdoError::InvalidArg(format!("unsupported mouse button: {btn:?}")))?;
         self.emit_frame(DeviceChoice::Pointer, |device, _| {
             let Some(b) = device.interface::<ei::Button>() else {
                 return;

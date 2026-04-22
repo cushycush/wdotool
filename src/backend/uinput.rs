@@ -151,20 +151,21 @@ fn configure_device(handle: &UInputHandle<File>) -> Result<()> {
 
 fn compile_default_keymap() -> Result<xkb::Keymap> {
     let ctx = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-    xkb::Keymap::new_from_names(&ctx, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS).ok_or_else(
-        || WdoError::Backend {
+    xkb::Keymap::new_from_names(&ctx, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS)
+        .ok_or_else(|| WdoError::Backend {
             backend: NAME,
             source: anyhow::anyhow!(
                 "xkb_keymap_new_from_names returned null (missing xkb config?)"
             ),
-        },
-    )
+        })
 }
 
 fn current_time() -> EventTime {
     // Wall-clock time is fine for uinput; the kernel timestamps its own view
     // of the events as they pass through anyway.
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     EventTime::new(now.as_secs() as _, now.subsec_micros() as _)
 }
 
@@ -225,7 +226,7 @@ fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
     for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
         for level in 0..=1 {
             let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
-            if syms.iter().any(|k| *k == target) {
+            if syms.contains(&target) {
                 return Some((keycode.saturating_sub(8), level == 1));
             }
         }
@@ -240,7 +241,7 @@ fn find_keysym(keymap: &xkb::Keymap, target: xkb::Keysym) -> Option<(u32, bool)>
     for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
         for level in 0..=1 {
             let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
-            if syms.iter().any(|k| *k == target) {
+            if syms.contains(&target) {
                 return Some((keycode.saturating_sub(8), level == 1));
             }
         }
@@ -420,9 +421,8 @@ impl Backend for UinputBackend {
     }
 
     async fn mouse_button(&self, btn: MouseButton, dir: KeyDirection) -> Result<()> {
-        let code = mouse_button_code(btn).ok_or_else(|| {
-            WdoError::InvalidArg(format!("unsupported mouse button: {btn:?}"))
-        })?;
+        let code = mouse_button_code(btn)
+            .ok_or_else(|| WdoError::InvalidArg(format!("unsupported mouse button: {btn:?}")))?;
         let inner = self.inner.lock().unwrap();
         let events: Vec<InputEvent> = match dir {
             KeyDirection::Press => vec![key_event(code, true), sync_event()],

@@ -24,8 +24,7 @@ use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
     zwp_virtual_keyboard_manager_v1 as vk_mgr, zwp_virtual_keyboard_v1 as vk,
 };
 use wayland_protocols_wlr::foreign_toplevel::v1::client::{
-    zwlr_foreign_toplevel_handle_v1 as ft_handle,
-    zwlr_foreign_toplevel_manager_v1 as ft_mgr,
+    zwlr_foreign_toplevel_handle_v1 as ft_handle, zwlr_foreign_toplevel_manager_v1 as ft_mgr,
 };
 use wayland_protocols_wlr::virtual_pointer::v1::client::{
     zwlr_virtual_pointer_manager_v1 as vp_mgr, zwlr_virtual_pointer_v1 as vp,
@@ -232,7 +231,10 @@ fn worker_main(
     let keymap = match compile_keymap() {
         Ok(k) => Some(k),
         Err(err) => {
-            warn!(?err, "failed to compile default xkb keymap; key input disabled");
+            warn!(
+                ?err,
+                "failed to compile default xkb keymap; key input disabled"
+            );
             None
         }
     };
@@ -545,20 +547,38 @@ fn do_mouse_button(
         MouseButton::Back => 0x113,
         MouseButton::Forward => 0x114,
         MouseButton::Other(_) => {
-            return Err(WdoError::InvalidArg(format!("unsupported mouse button: {btn:?}")));
+            return Err(WdoError::InvalidArg(format!(
+                "unsupported mouse button: {btn:?}"
+            )));
         }
     };
     let time = millis_monotonic();
     match dir {
         KeyDirection::Press => {
-            vp.button(time, code, wayland_client::protocol::wl_pointer::ButtonState::Pressed);
+            vp.button(
+                time,
+                code,
+                wayland_client::protocol::wl_pointer::ButtonState::Pressed,
+            );
         }
         KeyDirection::Release => {
-            vp.button(time, code, wayland_client::protocol::wl_pointer::ButtonState::Released);
+            vp.button(
+                time,
+                code,
+                wayland_client::protocol::wl_pointer::ButtonState::Released,
+            );
         }
         KeyDirection::PressRelease => {
-            vp.button(time, code, wayland_client::protocol::wl_pointer::ButtonState::Pressed);
-            vp.button(time, code, wayland_client::protocol::wl_pointer::ButtonState::Released);
+            vp.button(
+                time,
+                code,
+                wayland_client::protocol::wl_pointer::ButtonState::Pressed,
+            );
+            vp.button(
+                time,
+                code,
+                wayland_client::protocol::wl_pointer::ButtonState::Released,
+            );
         }
     }
     vp.frame();
@@ -622,11 +642,12 @@ fn compile_keymap() -> Result<SafeKeymap> {
     let ctx = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
     // Empty RMLVO → falls back to XKB_DEFAULT_* env vars, then libxkbcommon
     // compiled-in defaults (pc105 + us).
-    let keymap = xkb::Keymap::new_from_names(&ctx, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS)
-        .ok_or_else(|| WdoError::Backend {
-            backend: NAME,
-            source: anyhow::anyhow!("xkb_keymap_new_from_names returned null"),
-        })?;
+    let keymap =
+        xkb::Keymap::new_from_names(&ctx, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS)
+            .ok_or_else(|| WdoError::Backend {
+                backend: NAME,
+                source: anyhow::anyhow!("xkb_keymap_new_from_names returned null"),
+            })?;
     Ok(SafeKeymap(keymap))
 }
 
@@ -658,7 +679,11 @@ fn build_text_keymap(chars: &[char]) -> (String, std::collections::HashMap<char,
     }
     writeln!(s, "  }};").unwrap();
     writeln!(s, "  xkb_types \"wdotool\" {{ include \"complete\" }};").unwrap();
-    writeln!(s, "  xkb_compatibility \"wdotool\" {{ include \"complete\" }};").unwrap();
+    writeln!(
+        s,
+        "  xkb_compatibility \"wdotool\" {{ include \"complete\" }};"
+    )
+    .unwrap();
     writeln!(s, "  xkb_symbols \"wdotool\" {{").unwrap();
     writeln!(s, "    name[Group1] = \"wdotool\";").unwrap();
     for (i, c) in chars.iter().enumerate() {
@@ -677,10 +702,7 @@ fn build_text_keymap(chars: &[char]) -> (String, std::collections::HashMap<char,
 
 /// Write a keymap string to a sealed memfd and upload it via the virtual
 /// keyboard's `keymap` request.
-fn upload_keymap_text(
-    vk_obj: &vk::ZwpVirtualKeyboardV1,
-    keymap_text: &str,
-) -> Result<()> {
+fn upload_keymap_text(vk_obj: &vk::ZwpVirtualKeyboardV1, keymap_text: &str) -> Result<()> {
     let bytes = keymap_text.as_bytes();
     let fd = rustix::fs::memfd_create(
         "wdotool-keymap",
@@ -716,7 +738,7 @@ fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
     for keycode in keymap.min_keycode().raw()..=keymap.max_keycode().raw() {
         for level in 0..=1 {
             let syms = keymap.key_get_syms_by_level(xkb::Keycode::new(keycode), 0, level);
-            if syms.iter().any(|k| *k == target) {
+            if syms.contains(&target) {
                 return Some((keycode.saturating_sub(8), level == 1));
             }
         }
@@ -802,7 +824,9 @@ impl Dispatch<ft_mgr::ZwlrForeignToplevelManagerV1, ()> for State {
         _: &QueueHandle<Self>,
     ) {
         if let ft_mgr::Event::Toplevel { toplevel } = event {
-            state.pending.insert(toplevel.id(), PendingToplevel::default());
+            state
+                .pending
+                .insert(toplevel.id(), PendingToplevel::default());
             // Stash the handle in toplevels now so it's reachable if done()
             // never arrives (closed before initial state); fields fill in
             // via handle events.
@@ -936,7 +960,8 @@ impl Backend for WlrootsBackend {
 
     async fn type_text(&self, text: &str, delay: Duration) -> Result<()> {
         let text = text.to_string();
-        self.send(|reply| Command::TypeText { text, delay, reply }).await
+        self.send(|reply| Command::TypeText { text, delay, reply })
+            .await
     }
 
     async fn mouse_move(&self, x: i32, y: i32, absolute: bool) -> Result<()> {
@@ -950,7 +975,8 @@ impl Backend for WlrootsBackend {
     }
 
     async fn mouse_button(&self, btn: MouseButton, dir: KeyDirection) -> Result<()> {
-        self.send(|reply| Command::MouseButton { btn, dir, reply }).await
+        self.send(|reply| Command::MouseButton { btn, dir, reply })
+            .await
     }
 
     async fn scroll(&self, dx: f64, dy: f64) -> Result<()> {
@@ -967,7 +993,8 @@ impl Backend for WlrootsBackend {
 
     async fn activate_window(&self, id: &WindowId) -> Result<()> {
         let id = id.0.clone();
-        self.send(|reply| Command::ActivateWindow { id, reply }).await
+        self.send(|reply| Command::ActivateWindow { id, reply })
+            .await
     }
 
     async fn close_window(&self, id: &WindowId) -> Result<()> {
