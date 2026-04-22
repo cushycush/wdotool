@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-04-22
+
+### Added
+- `wdotool-bin` AUR package — installs the prebuilt x86_64 binary from the GitHub Release (no compile). `provides=(wdotool)`, so conflicts cleanly with `wdotool` and `wdotool-git`.
+- `wdotool-git` AUR package — rolling build from `main`, pkgver auto-derived via `git describe`.
+- `flake.nix` with `packages.default`, `packages.wdotool`, and a `devShells.default` containing rustc/cargo/clippy/rustfmt/rust-analyzer. Linux only (x86_64 + aarch64).
+- `crates-io.yml` workflow that runs `cargo publish` automatically on every tag push (needs `CARGO_REGISTRY_TOKEN` secret).
+- `aur.yml` now runs as a matrix across `wdotool` and `wdotool-bin`, with a 15-minute retry loop on the binary tarball so the `-bin` package waits for cargo-dist's Release workflow to upload the artifact.
+
+### Internal
+- `packaging/aur/` reorganized into per-variant subdirectories (`wdotool/`, `wdotool-bin/`, `wdotool-git/`). Each has its own `PKGBUILD`; the workflow patches the relevant one per matrix leg.
+
 ## [0.1.3] — 2026-04-22
 
 ### Added
@@ -50,7 +62,8 @@ Initial release.
 - GNOME window backend is not yet implemented.
 - `type_text` Unicode support is full on wlroots (transient keymap) but best-effort on libei/uinput (bounded by the compositor's active keymap).
 
-[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/cushycush/wdotool/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/cushycush/wdotool/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/cushycush/wdotool/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/cushycush/wdotool/compare/v0.1.0...v0.1.1

@@ -30,13 +30,20 @@ Early but usable. Tested on Hyprland. Current surface:
 ## Install
 
 ```sh
-# Arch Linux (AUR) — builds from source
-yay -S wdotool   # or: paru -S wdotool
+# Arch Linux (AUR) — three flavors, pick one:
+yay -S wdotool        # source build at the latest stable tag
+yay -S wdotool-bin    # prebuilt x86_64 binary (fastest install)
+yay -S wdotool-git    # rolling build from main
 
-# Prebuilt binary (x86_64 Linux)
+# Prebuilt binary via shell installer (any glibc x86_64 Linux)
 curl -LsSf https://github.com/cushycush/wdotool/releases/latest/download/wdotool-installer.sh | sh
 
-# From crates.io (any arch; builds on install)
+# Nix (flake)
+nix run github:cushycush/wdotool -- --help
+# or add to a NixOS/home-manager config:
+# inputs.wdotool.url = "github:cushycush/wdotool";
+
+# From crates.io (any Linux arch; builds on install)
 cargo install wdotool
 
 # From source

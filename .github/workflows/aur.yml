@@ -2,15 +2,14 @@ name: Publish to AUR
 
 # Fires on tag push, in parallel with the Release workflow. GitHub generates
 # the source tarball at archive/refs/tags/<tag>.tar.gz as soon as the tag
-# exists, so we don't need to wait for cargo-dist to finish.
+# exists. For the -bin package we need to wait for the Release workflow to
+# upload the prebuilt binary — handled by a retry loop per variant.
 #
 # We intentionally do NOT use `on: release: published` because releases
-# created by the default GITHUB_TOKEN don't re-trigger workflows
-# (anti-recursion safeguard), and that's what the Release workflow uses.
+# created by the default GITHUB_TOKEN don't re-trigger workflows.
 on:
   push:
     tags: ["v*.*.*"]
-  # Manual trigger for re-running against an existing tag.
   workflow_dispatch:
     inputs:
       tag:
@@ -22,50 +21,87 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      # Needed so the "sync PKGBUILD back to main" step can push a commit.
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkgname: wdotool
+            pkgbuild_dir: packaging/aur/wdotool
+            asset_path: archive/refs/tags/TAG.tar.gz
+            # Source tarball exists immediately after tag push.
+            wait_for_asset: false
+          - pkgname: wdotool-bin
+            pkgbuild_dir: packaging/aur/wdotool-bin
+            asset_path: releases/download/TAG/wdotool-x86_64-unknown-linux-gnu.tar.xz
+            # Prebuilt binary is produced by the parallel Release workflow,
+            # so wait for it to appear.
+            wait_for_asset: true
     steps:
       - name: Check out source (main)
         uses: actions/checkout@v4
         with:
           ref: main
-          # Fetch full history so the auto-commit step can push non-trivially.
           fetch-depth: 0
 
-      - name: Extract version from tag
+      - name: Extract version
         id: version
-        # For push events GITHUB_REF_NAME is the tag. For workflow_dispatch
-        # the tag comes from the manual input.
         run: |
           tag="${{ inputs.tag || github.ref_name }}"
           pkgver="${tag#v}"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "pkgver=${pkgver}" >> "$GITHUB_OUTPUT"
 
-      - name: Compute source tarball sha256
+      - name: Wait for + hash release asset
         id: sha
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ASSET_TEMPLATE: ${{ matrix.asset_path }}
+          WAIT: ${{ matrix.wait_for_asset }}
         run: |
-          curl -fsSL \
-            "https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.version.outputs.tag }}.tar.gz" \
-            -o src.tar.gz
-          sum="$(sha256sum src.tar.gz | awk '{print $1}')"
+          set -euo pipefail
+          url="https://github.com/${REPO}/${ASSET_TEMPLATE//TAG/${TAG}}"
+          echo "Fetching: ${url}"
+
+          # For wdotool-bin, poll the URL until the Release workflow has
+          # uploaded the asset. 15 min timeout (cargo-dist builds typically
+          # finish in 3–5 min).
+          if [ "${WAIT}" = "true" ]; then
+            tries=0
+            until curl -fsSL "${url}" -o asset.bin; do
+              tries=$((tries + 1))
+              if [ ${tries} -ge 45 ]; then
+                echo "::error::Asset at ${url} still 404 after 15 minutes"
+                exit 1
+              fi
+              echo "(${tries}/45) asset not ready yet; sleeping 20s"
+              sleep 20
+            done
+          else
+            curl -fsSL "${url}" -o asset.bin
+          fi
+
+          sum="$(sha256sum asset.bin | awk '{print $1}')"
           echo "sha256=${sum}" >> "$GITHUB_OUTPUT"
 
       - name: Patch PKGBUILD
+        env:
+          PKGBUILD: ${{ matrix.pkgbuild_dir }}/PKGBUILD
+          V: ${{ steps.version.outputs.pkgver }}
+          SHA: ${{ steps.sha.outputs.sha256 }}
         run: |
-          sed -i "s|^pkgver=.*|pkgver=${{ steps.version.outputs.pkgver }}|" packaging/aur/PKGBUILD
-          sed -i "s|^pkgrel=.*|pkgrel=1|" packaging/aur/PKGBUILD
-          sed -i "s|^sha256sums=.*|sha256sums=('${{ steps.sha.outputs.sha256 }}')|" packaging/aur/PKGBUILD
-          echo "--- patched PKGBUILD ---"
-          cat packaging/aur/PKGBUILD
+          sed -i "s|^pkgver=.*|pkgver=${V}|" "${PKGBUILD}"
+          sed -i "s|^pkgrel=.*|pkgrel=1|" "${PKGBUILD}"
+          sed -i "s|^sha256sums=.*|sha256sums=('${SHA}')|" "${PKGBUILD}"
+          echo "--- patched ${PKGBUILD} ---"
+          cat "${PKGBUILD}"
 
       - name: Publish to AUR
-        # Third-party action — review before bumping. Pinned major version so
-        # we don't auto-adopt behavior changes.
         uses: KSXGitHub/github-actions-deploy-aur@v4.1.3
         with:
-          pkgname: wdotool
-          pkgbuild: packaging/aur/PKGBUILD
+          pkgname: ${{ matrix.pkgname }}
+          pkgbuild: ${{ matrix.pkgbuild_dir }}/PKGBUILD
           commit_username: Matthew Cushing
           commit_email: hgxtymphwn@privaterelay.appleid.com
           ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
@@ -73,10 +109,13 @@ jobs:
           ssh_keyscan_types: rsa,ecdsa,ed25519
 
       - name: Sync updated PKGBUILD back to main
+        # Each variant commits only its own PKGBUILD, so the two matrix
+        # jobs don't fight over the same file. stefanzweifel's action
+        # rebases on conflicts so concurrent pushes resolve cleanly.
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "AUR: bump PKGBUILD to ${{ steps.version.outputs.pkgver }}"
-          file_pattern: packaging/aur/PKGBUILD
+          commit_message: "AUR: bump ${{ matrix.pkgname }} to ${{ steps.version.outputs.pkgver }}"
+          file_pattern: ${{ matrix.pkgbuild_dir }}/PKGBUILD
           commit_user_name: Matthew Cushing
           commit_user_email: hgxtymphwn@privaterelay.appleid.com
           branch: main
