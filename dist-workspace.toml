@@ -1,5 +1,7 @@
 [workspace]
-members = ["cargo:."]
+# Only the wdotool binary crate produces release artifacts. wdotool-core
+# is a library — published to crates.io but not as a downloadable binary.
+members = ["cargo:wdotool"]
 
 # Config for 'dist'
 [dist]

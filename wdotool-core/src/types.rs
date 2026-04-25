@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 #[derive(Clone, Debug)]
 pub struct Capabilities {
     pub key_input: bool,
@@ -56,24 +54,9 @@ impl std::fmt::Display for WindowId {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // fields populated by real window backends
 pub struct WindowInfo {
     pub id: WindowId,
     pub title: String,
     pub app_id: Option<String>,
     pub pid: Option<u32>,
-}
-
-#[derive(Clone, Copy, Debug)]
-#[allow(dead_code)] // used when type_text grows richer options
-pub struct TypeOptions {
-    pub delay: Duration,
-}
-
-impl Default for TypeOptions {
-    fn default() -> Self {
-        Self {
-            delay: Duration::from_millis(12),
-        }
-    }
 }

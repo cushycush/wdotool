@@ -12,11 +12,10 @@ pub enum WdoError {
     },
 
     #[error("backend '{backend}' failed: {source}")]
-    #[allow(dead_code)] // used by real backends once they land
     Backend {
         backend: &'static str,
         #[source]
-        source: anyhow::Error,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     #[error("failed to parse key chain '{input}': {reason}")]

@@ -45,10 +45,11 @@ impl UinputBackend {
             .open("/dev/uinput")
             .map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!(
+                source: format!(
                     "open /dev/uinput failed ({e}). The process needs write access — add \
                      the user to the `input` group or install a udev rule."
-                ),
+                )
+                .into(),
             })?;
         let handle = UInputHandle::new(file);
 
@@ -90,7 +91,7 @@ impl UinputBackend {
             .create(&id, DEVICE_NAME, 0, &abs_setup)
             .map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::Error::new(e),
+                source: Box::new(e),
             })?;
 
         // Give the kernel + compositor time to pick up the new device via
@@ -114,7 +115,7 @@ fn configure_device(handle: &UInputHandle<File>) -> Result<()> {
     let set_or = |r: io::Result<()>, what: &'static str| -> Result<()> {
         r.map_err(|e| WdoError::Backend {
             backend: NAME,
-            source: anyhow::anyhow!("uinput {what}: {e}"),
+            source: format!("uinput {what}: {e}").into(),
         })
     };
 
@@ -151,9 +152,7 @@ fn compile_default_keymap() -> Result<xkb::Keymap> {
     xkb::Keymap::new_from_names(&ctx, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS)
         .ok_or_else(|| WdoError::Backend {
             backend: NAME,
-            source: anyhow::anyhow!(
-                "xkb_keymap_new_from_names returned null (missing xkb config?)"
-            ),
+            source: "xkb_keymap_new_from_names returned null (missing xkb config?)".into(),
         })
 }
 
@@ -208,7 +207,7 @@ fn write_events(handle: &UInputHandle<File>, evs: &[InputEvent]) -> Result<()> {
     let raw: Vec<input_linux::sys::input_event> = evs.iter().map(|e| (*e).into()).collect();
     handle.write(&raw).map_err(|e| WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: Box::new(e),
     })?;
     Ok(())
 }

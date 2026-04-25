@@ -6,11 +6,17 @@ use crate::error::Result;
 use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
 
 pub mod detector;
-pub mod gnome;
-pub mod kde;
-pub mod libei;
-pub mod uinput;
-pub mod wlroots;
+
+#[cfg(feature = "gnome")]
+pub(crate) mod gnome;
+#[cfg(feature = "kde")]
+pub(crate) mod kde;
+#[cfg(feature = "libei")]
+pub(crate) mod libei;
+#[cfg(feature = "uinput")]
+pub(crate) mod uinput;
+#[cfg(feature = "wlroots")]
+pub(crate) mod wlroots;
 
 #[async_trait]
 pub trait Backend: Send + Sync {
