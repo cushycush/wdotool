@@ -10,6 +10,9 @@
 //! - [`WdoError`] / [`Result`]: the error type returned by every fallible
 //!   call.
 //! - [`keysym`]: the chord parser used by the CLI (`ctrl+shift+a` etc.).
+//! - [`capabilities`]: structured capability report (schema v1; see
+//!   `docs/capabilities-schema.json`). Use this to ask "what does
+//!   this wdotool installation support?" from Rust or via JSON.
 //!
 //! Per-backend modules (libei, wlroots, kde, gnome, uinput) are gated
 //! behind Cargo features. Default features enable all five. Downstream
@@ -18,6 +21,7 @@
 //! `default-features = false` + a custom feature list.
 
 pub mod backend;
+pub mod capabilities;
 pub mod error;
 pub mod keysym;
 pub mod types;
