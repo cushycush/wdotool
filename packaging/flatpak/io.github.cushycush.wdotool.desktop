@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=wdotool
+GenericName=Wayland Input Automation
+Comment=xdotool-compatible automation CLI for Wayland
+Exec=wdotool
+Terminal=true
+Categories=Utility;
+NoDisplay=true
+Keywords=automation;input;keyboard;mouse;xdotool;wayland;
