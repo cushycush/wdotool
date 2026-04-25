@@ -4,13 +4,15 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/cushycush/wdotool/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/cushycush/wdotool/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](#license)
 
-An xdotool-compatible input automation CLI for Wayland, built on the protocols that were actually designed for this.
+Input automation for Wayland. Send keystrokes, move the mouse, focus and close windows. Works as a command-line tool for shell scripts and ad-hoc use, and as a Rust library (`wdotool-core`) for tools that want to embed it. [wflow](https://github.com/cushycush/wflow) is the first known library consumer.
 
 ## Why
 
-- **xdotool** is X11-only and does not work on Wayland.
-- **ydotool** writes to `/dev/uinput`, which means root (or careful udev rules), no focus awareness, and no window management. It bypasses the compositor entirely, which breaks in sandboxed sessions and loses any security boundary.
-- **wdotool** uses the protocols Wayland already provides for this: libei (via the XDG RemoteDesktop portal), wlroots' virtual-keyboard/pointer, and foreign-toplevel-management. It respects compositor focus and permissions, and only falls back to uinput when nothing better is available.
+If you've been wanting xdotool on Wayland, this is the closest thing. wdotool covers most of the same operations (key, type, mouse, scroll, search, focus) using the protocols Wayland actually provides for this work: libei via the XDG RemoteDesktop portal, wlroots virtual-keyboard and virtual-pointer, KWin scripting on KDE, and a Shell extension on GNOME. It respects compositor focus and permissions; it does not bypass them like ydotool does with `/dev/uinput`.
+
+"Closest thing" is doing real work in that sentence. wdotool is **not** a drop-in xdotool replacement. The CLI surface aims to be argv-compatible for the common commands so existing scripts can port without much editing, but full parity is not promised. See [`docs/xdotool-compat.md`](docs/xdotool-compat.md) for an honest table of what works, what does not, and what is intentionally out of scope.
+
+For comparison with the alternatives: **xdotool** is X11-only and does not work on Wayland at all. **ydotool** writes to `/dev/uinput`, which means root (or carefully tuned udev rules), no focus awareness, and no window management. It bypasses the compositor entirely, which breaks inside sandboxed sessions and loses any security boundary the compositor was enforcing. **wdotool** stays inside the compositor's permission model.
 
 ## Status
 

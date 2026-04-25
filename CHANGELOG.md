@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docs/xdotool-compat.md`. Honest parity table between xdotool and wdotool, grouped by category (input, window actions, window queries, workspace ops, X11-only). Each row marks the command as shipped, partial, deferred, or not planned, with a short reason. Replaces the implicit "drop-in replacement" promise the old README made.
 - DEB and RPM packages for Debian / Ubuntu and Fedora / openSUSE / RHEL families. Built by a new `distros.yml` CI workflow that runs alongside cargo-dist's release on every tag push and uploads both artifacts to the same GitHub Release. Closes the install-friction gap for users on those distros, who previously had to either build from crates.io (requires Rust toolchain) or use the generic shell installer.
 - Flathub manifest, .desktop file, and AppStream metainfo at `packaging/flatpak/`. App ID is `io.github.cushycush.wdotool`. The manifest builds locally; submission to flathub/flathub is a separate manual step the maintainer does. See `packaging/flatpak/README.md` for the steps.
 - `wdotool diag` and `wdotool diag --copy`. Environment + backend availability report meant for bug triage. Probes pre-conditions only (XDG env vars, portal availability via `busctl`, GNOME extension presence, `/dev/uinput` writability, portal token cache state), so the diag run never opens a portal session and never pops a consent dialog. Markdown by default, `--json` for machine-readable output, `--copy` pipes the markdown through `wl-copy` (falling back to `xclip`).
@@ -15,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-backend Cargo features (`libei`, `wlroots`, `kde`, `gnome`, `uinput`) on the new `wdotool-core` library crate. Default-on enables all five. Downstream Rust consumers can opt out: `default-features = false, features = ["libei", "wlroots", "kde", "gnome"]` drops uinput's `input-linux` and `libc` deps.
 
 ### Changed
+- README opening reframed. wdotool is no longer described as an "xdotool-compatible CLI"; it's an input automation tool with both a CLI and a library API, and `wflow` is the first known library consumer. The "Why" section now points migrants at a new `docs/xdotool-compat.md` for the honest parity table instead of overpromising drop-in compatibility.
 - Repo is now a Cargo workspace. The engine moved into `wdotool-core/` (a library crate); the `wdotool` binary is a thin clap wrapper that depends on `wdotool-core`. End-user behavior is unchanged. Other Rust projects can `cargo add wdotool-core` and call the engine directly instead of subprocessing the binary.
 - `WdoError::Backend.source` type changed from `anyhow::Error` to `Box<dyn std::error::Error + Send + Sync>`. `wdotool-core` no longer pulls `anyhow` into its dependents.
 - libei's `select_devices` switched from `PersistMode::DoNot` to `PersistMode::ExplicitlyRevoked` so the portal actually issues restore tokens.
