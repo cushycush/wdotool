@@ -3,10 +3,18 @@ name: Publish to AUR
 # Fires on tag push, in parallel with the Release workflow. GitHub generates
 # the source tarball at archive/refs/tags/<tag>.tar.gz as soon as the tag
 # exists. For the -bin package we need to wait for the Release workflow to
-# upload the prebuilt binary — handled by a retry loop per variant.
+# upload the prebuilt binary; that's the retry loop per variant.
 #
 # We intentionally do NOT use `on: release: published` because releases
 # created by the default GITHUB_TOKEN don't re-trigger workflows.
+#
+# What this workflow does NOT do: sync the updated PKGBUILD back to the
+# in-repo packaging/aur/<pkgname>/PKGBUILD file. The in-repo files are
+# starter templates for the AUR submission; AUR is the source of truth
+# after that. Trying to commit the bump back to main fights the branch
+# protection ruleset (no direct pushes), and the in-repo files going
+# slightly stale between releases is a price worth paying for that
+# simplicity.
 on:
   push:
     tags: ["v*.*.*"]
@@ -21,14 +29,13 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
-      # Each leg commits + pushes the in-repo PKGBUILD copy back to main.
-      # Running in parallel causes the second push to race against the
-      # first; git-auto-commit-action's rebase-retry sometimes trips on
-      # the push-lock. Serializing keeps this simple and fast enough
-      # (each leg is ~60s).
+      # Two matrix legs run sequentially. Sequential is overkill now
+      # that we no longer commit anything back to main (the in-repo
+      # PKGBUILDs are starter templates, not living sync targets), but
+      # parallelism doesn't buy much either when each leg is ~60s.
       max-parallel: 1
       matrix:
         include:
@@ -113,15 +120,12 @@ jobs:
           ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
           commit_message: "Update to ${{ steps.version.outputs.pkgver }}"
           ssh_keyscan_types: rsa,ecdsa,ed25519
-
-      - name: Sync updated PKGBUILD back to main
-        # Each variant commits only its own PKGBUILD, so the two matrix
-        # jobs don't fight over the same file. stefanzweifel's action
-        # rebases on conflicts so concurrent pushes resolve cleanly.
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "AUR: bump ${{ matrix.pkgname }} to ${{ steps.version.outputs.pkgver }}"
-          file_pattern: ${{ matrix.pkgbuild_dir }}/PKGBUILD
-          commit_user_name: Matthew Cushing
-          commit_user_email: hgxtymphwn@privaterelay.appleid.com
-          branch: main
+          # The action's container runs makepkg as part of the deploy
+          # to regenerate .SRCINFO. v0.2.0's first run failed with
+          # "no secret key available to sign with" inside that step,
+          # which is makepkg honoring a `sign` entry in the
+          # container's BUILDENV. Skip the test build entirely and
+          # pass --nosign for any other makepkg invocation as defense
+          # in depth.
+          test: false
+          test_flags: --nosign
