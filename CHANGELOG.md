@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-25
+
 ### Added
 - `docs/verification/kde-plasma-6.md`. Smoke-test checklist for the KDE backend, designed to be filled in by anyone with a Plasma 6 machine. 13 operations × 6 conditions (default, fractional 125%, fractional 175%, mixed-scale dual-monitor, Wayland session restart, Fcitx5 active) plus two special tests for the token-revoke recovery flow and the wflow library integration. Each row has the command to run, what passes, and what to record on fail. Filling it in closes [issue #1](https://github.com/cushycush/wdotool/issues/1) and unblocks the KDE-verified claim in the README.
 - `docs/xdotool-compat.md`. Honest parity table between xdotool and wdotool, grouped by category (input, window actions, window queries, workspace ops, X11-only). Each row marks the command as shipped, partial, deferred, or not planned, with a short reason. Replaces the implicit "drop-in replacement" promise the old README made.
