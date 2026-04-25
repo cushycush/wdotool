@@ -1,4 +1,5 @@
 mod cli;
+mod diag;
 
 use std::time::Duration;
 
@@ -15,6 +16,18 @@ use cli::{Cli, Command};
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     init_tracing(cli.verbose);
+
+    // Diag has to short-circuit before detector::build so the probes
+    // never touch the portal session (which would pop a consent dialog
+    // for libei users — exactly the surprise diag is meant to remove).
+    if let Command::Diag { json, copy } = cli.command {
+        let format = if json {
+            diag::DiagFormat::Json
+        } else {
+            diag::DiagFormat::Markdown
+        };
+        return diag::run(format, copy);
+    }
 
     let env = Environment::detect();
 
@@ -134,6 +147,11 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
         },
         Command::Windowactivate { id } => backend.activate_window(&WindowId(id)).await?,
         Command::Windowclose { id } => backend.close_window(&WindowId(id)).await?,
+        Command::Diag { .. } => {
+            // Handled in main() before dispatch is called so diag never
+            // bootstraps a backend.
+            unreachable!("Diag short-circuits before dispatch");
+        }
     }
     Ok(())
 }
