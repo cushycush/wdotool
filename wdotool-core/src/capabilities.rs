@@ -173,10 +173,13 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
             active: caps.active_window,
             activate: caps.activate_window,
             close: caps.close_window,
-            // v0.2.0 only matches by title (`wdotool search --name`).
-            // The `match_by` array can grow without a schema bump
-            // when class / app_id / pid matchers land.
-            match_by: vec![MatchBy::Title],
+            // The CLI exposes --name (matches title), --class
+            // (substring/regex against app_id), and --pid. The schema's
+            // `class` enum value documents the user-facing flag; we
+            // also emit `app_id` because that's the actual attribute
+            // the class filter reads. Adding entries here is forward-
+            // compatible per the schema rules.
+            match_by: vec![MatchBy::Title, MatchBy::AppId, MatchBy::Pid],
         },
         extras: Extras {
             diag: true,
@@ -319,7 +322,10 @@ mod tests {
         assert!(r.backend.delegated_to.is_none());
         assert!(!r.backend.fallback_chain.is_empty());
         assert_eq!(r.input.modifiers, ModifiersCap::SendOnly);
-        assert_eq!(r.window.match_by, vec![MatchBy::Title]);
+        assert_eq!(
+            r.window.match_by,
+            vec![MatchBy::Title, MatchBy::AppId, MatchBy::Pid]
+        );
         assert!(r.extras.diag);
         assert!(!r.extras.outputs);
         assert!(!r.extras.record.supported);
@@ -352,7 +358,10 @@ mod tests {
         assert_eq!(value["backend"]["kind"], "direct");
         assert_eq!(value["input"]["modifiers"], "send-only");
         // match_by is an array of snake_case strings.
-        assert_eq!(value["window"]["match_by"], serde_json::json!(["title"]));
+        assert_eq!(
+            value["window"]["match_by"],
+            serde_json::json!(["title", "app_id", "pid"])
+        );
         // record.source is null in v0.2.0.
         assert!(value["extras"]["record"]["source"].is_null());
     }

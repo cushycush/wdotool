@@ -82,12 +82,33 @@ pub enum Command {
     /// Scroll. Positive dy scrolls down; positive dx scrolls right.
     Scroll { dx: f64, dy: f64 },
 
-    /// List windows matching the filters. With no filter, lists all windows.
+    /// List windows matching the filters. With no filter, lists all
+    /// windows. Exits with status 1 if no windows matched, status 0
+    /// otherwise (matches xdotool's behavior so `if wdotool search ...`
+    /// works in shell scripts).
     Search {
+        /// Substring (or regex with --regex) matched against the
+        /// window title.
         #[arg(long)]
         name: Option<String>,
+        /// Substring (or regex with --regex) matched against the
+        /// Wayland app_id (the closest equivalent to X11's WM_CLASS).
         #[arg(long)]
         class: Option<String>,
+        /// Match windows owned by this exact PID. Backends that can't
+        /// resolve a PID for a window will never match this filter.
+        #[arg(long)]
+        pid: Option<u32>,
+        /// Treat --name and --class values as regular expressions
+        /// instead of plain substrings. Without this flag, the
+        /// patterns are escaped before matching, so `Fire.fox` matches
+        /// only that literal string.
+        #[arg(long)]
+        regex: bool,
+        /// Case-insensitive matching for --name and --class. Works in
+        /// both substring and regex modes.
+        #[arg(long)]
+        ignore_case: bool,
     },
 
     /// Print the active window's id.
