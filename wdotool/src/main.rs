@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Diag has to short-circuit before detector::build so the probes
     // never touch the portal session (which would pop a consent dialog
-    // for libei users — exactly the surprise diag is meant to remove).
+    // for libei users, exactly the surprise diag is meant to remove).
     if let Command::Diag { json, copy } = cli.command {
         let format = if json {
             diag::DiagFormat::Json

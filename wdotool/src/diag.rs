@@ -1,4 +1,4 @@
-//! `wdotool diag` — environment + backend availability report.
+//! `wdotool diag`: environment + backend availability report.
 //!
 //! Probes pre-conditions only. Never opens a portal session, so it will
 //! not trigger a consent dialog. Output is markdown by default; pass
@@ -168,7 +168,7 @@ fn probe_wlroots(env: &Environment) -> BackendSection {
     // Probing the actual wl_registry globals would need wayland-client,
     // which lives behind wdotool-core's wlroots feature and is not part
     // of the CLI's public API surface. Inferring from compositor hints
-    // is good enough for diag — the wlroots backend's own bootstrap
+    // is good enough for diag; the wlroots backend's own bootstrap
     // surfaces a precise error if the protocols aren't there.
     let is_wlroots = env.has_hint("sway")
         || env.has_hint("hyprland")

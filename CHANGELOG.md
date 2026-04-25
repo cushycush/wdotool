@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `wdotool diag` and `wdotool diag --copy`. Environment + backend availability report meant for bug triage. Probes pre-conditions only (XDG env vars, portal availability via `busctl`, GNOME extension presence, `/dev/uinput` writability, portal token cache state), so the diag run never opens a portal session and never pops a consent dialog. Markdown by default, `--json` for machine-readable output, `--copy` pipes the markdown through `wl-copy` (falling back to `xclip`).
+- libei portal token cache. The first run prompts the user for consent. The portal-issued `restore_token` is cached at `$XDG_STATE_HOME/wdotool/portal.token` (mode 0600 set at create time via `OpenOptions::mode(0o600)`). Subsequent runs present the token and skip the dialog. The recovery flow detects token rejection and re-runs the consent flow without clobbering a still-valid cache on transient failures. Delete the cache file to force a fresh consent.
+- Per-backend Cargo features (`libei`, `wlroots`, `kde`, `gnome`, `uinput`) on the new `wdotool-core` library crate. Default-on enables all five. Downstream Rust consumers can opt out: `default-features = false, features = ["libei", "wlroots", "kde", "gnome"]` drops uinput's `input-linux` and `libc` deps.
+
+### Changed
+- Repo is now a Cargo workspace. The engine moved into `wdotool-core/` (a library crate); the `wdotool` binary is a thin clap wrapper that depends on `wdotool-core`. End-user behavior is unchanged. Other Rust projects can `cargo add wdotool-core` and call the engine directly instead of subprocessing the binary.
+- `WdoError::Backend.source` type changed from `anyhow::Error` to `Box<dyn std::error::Error + Send + Sync>`. `wdotool-core` no longer pulls `anyhow` into its dependents.
+- libei's `select_devices` switched from `PersistMode::DoNot` to `PersistMode::ExplicitlyRevoked` so the portal actually issues restore tokens.
+- Workspace MSRV pin: Rust 1.82+ (the CLI uses `Option::is_none_or`).
+
 ## [0.1.6] — 2026-04-22
 
 ### Fixed
