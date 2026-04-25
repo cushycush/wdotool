@@ -172,6 +172,30 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
         },
         Command::Windowactivate { id } => backend.activate_window(&WindowId(id)).await?,
         Command::Windowclose { id } => backend.close_window(&WindowId(id)).await?,
+        Command::Getwindowname { id } => {
+            let w = find_window(backend, &id).await?;
+            println!("{}", w.title);
+        }
+        Command::Getwindowpid { id } => {
+            let w = find_window(backend, &id).await?;
+            match w.pid {
+                Some(pid) => println!("{pid}"),
+                None => {
+                    eprintln!("wdotool: pid not available for window {id}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Command::Getwindowclassname { id } => {
+            let w = find_window(backend, &id).await?;
+            match w.app_id {
+                Some(app_id) => println!("{app_id}"),
+                None => {
+                    eprintln!("wdotool: classname (app_id) not available for window {id}");
+                    std::process::exit(1);
+                }
+            }
+        }
         Command::Diag { .. } => {
             // Handled in main() before dispatch is called so diag never
             // bootstraps a backend.
@@ -179,6 +203,18 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
         }
     }
     Ok(())
+}
+
+/// Look up a window by its id string. Used by the `getwindow*` commands
+/// which all need to resolve an id to a `WindowInfo` before reading a
+/// single field. Returns `WindowNotFound` if no window in the current
+/// list has that id, which xdotool also signals via non-zero exit.
+async fn find_window(backend: &dyn Backend, id: &str) -> Result<WindowInfo> {
+    let windows = backend.list_windows().await?;
+    windows
+        .into_iter()
+        .find(|w| w.id.0 == id)
+        .ok_or_else(|| WdoError::WindowNotFound(id.to_string()))
 }
 
 /// Approximates xdotool's --clearmodifiers. Wayland doesn't let a normal

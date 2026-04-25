@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `wdotool getwindowname <id>`, `wdotool getwindowpid <id>`, and `wdotool getwindowclassname <id>` round out the xdotool query surface. Each takes a window id (the same string `wdotool search` and `wdotool getactivewindow` print) and writes a single field to stdout: title, PID, or app_id (the Wayland equivalent of X11's WM_CLASS classname). Returns exit 1 if the id doesn't exist or if the backend can't resolve the requested field for that window. No new backend code: every backend that already populates `WindowInfo` from `list_windows` gets these for free.
 - `wdotool search` grew real matchers. `--class` now works alongside the existing `--name` (filters on Wayland app_id, the closest equivalent to X11's WM_CLASS). `--pid` filters by exact process id. `--regex` switches `--name` and `--class` from substring matching to full regex; `--ignore-case` works in both modes. The capabilities schema's `window.match_by` field grew from `["title"]` to `["title", "app_id", "pid"]` accordingly. Exit code semantics now match xdotool: `wdotool search` returns 1 when nothing matches and 0 when it finds at least one window, so shell scripts can branch on `if wdotool search --name foo; then ...`.
 
 ## [0.2.0] — 2026-04-25
