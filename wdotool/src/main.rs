@@ -6,9 +6,11 @@ use std::time::Duration;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+use regex::Regex;
+
 use wdotool_core::detector::{self, BackendKind, Environment};
 use wdotool_core::keysym;
-use wdotool_core::{Backend, KeyDirection, MouseButton, Result, WdoError, WindowId};
+use wdotool_core::{Backend, KeyDirection, MouseButton, Result, WdoError, WindowId, WindowInfo};
 
 use cli::{Cli, Command};
 
@@ -138,15 +140,30 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
         Command::Scroll { dx, dy } => {
             backend.scroll(dx, dy).await?;
         }
-        Command::Search { name, class } => {
+        Command::Search {
+            name,
+            class,
+            pid,
+            regex,
+            ignore_case,
+        } => {
             let windows = backend.list_windows().await?;
-            for w in windows.into_iter().filter(|w| {
-                name.as_deref().is_none_or(|n| w.title.contains(n))
-                    && class
-                        .as_deref()
-                        .is_none_or(|c| w.app_id.as_deref().is_some_and(|a| a.contains(c)))
-            }) {
+            let filters = SearchFilters::compile(SearchFlags {
+                name: name.as_deref(),
+                class: class.as_deref(),
+                pid,
+                regex,
+                ignore_case,
+            })?;
+            let mut matched = false;
+            for w in windows.iter().filter(|w| filters.matches(w)) {
                 println!("{}\t{}", w.id, w.title);
+                matched = true;
+            }
+            // xdotool exits 1 when nothing matched; preserve that for
+            // shell scripts that branch on `if wdotool search ...`.
+            if !matched {
+                std::process::exit(1);
             }
         }
         Command::Getactivewindow => match backend.active_window().await? {
@@ -253,4 +270,224 @@ fn init_tracing(verbose: bool) {
         .with_target(false)
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+/// Inputs to [`SearchFilters::compile`]; mirrors the CLI flags so the
+/// filter compilation is testable without round-tripping through clap.
+struct SearchFlags<'a> {
+    name: Option<&'a str>,
+    class: Option<&'a str>,
+    pid: Option<u32>,
+    regex: bool,
+    ignore_case: bool,
+}
+
+/// Compiled search predicates. Built once per `wdotool search` call and
+/// then applied to each window. Holding the regex(es) here avoids
+/// recompiling per-window.
+struct SearchFilters {
+    name: Option<Regex>,
+    class: Option<Regex>,
+    pid: Option<u32>,
+}
+
+impl SearchFilters {
+    fn compile(flags: SearchFlags<'_>) -> Result<Self> {
+        let make_regex = |pat: &str, field: &'static str| -> Result<Regex> {
+            // Without --regex, escape so substring patterns are
+            // taken literally. With --ignore-case, prefix with the
+            // (?i) inline flag; works in both modes uniformly.
+            let body = if flags.regex {
+                pat.to_string()
+            } else {
+                regex::escape(pat)
+            };
+            let full = if flags.ignore_case {
+                format!("(?i){body}")
+            } else {
+                body
+            };
+            Regex::new(&full)
+                .map_err(|e| WdoError::InvalidArg(format!("invalid {field} pattern {pat:?}: {e}")))
+        };
+        Ok(Self {
+            name: flags.name.map(|p| make_regex(p, "--name")).transpose()?,
+            class: flags.class.map(|p| make_regex(p, "--class")).transpose()?,
+            pid: flags.pid,
+        })
+    }
+
+    fn matches(&self, w: &WindowInfo) -> bool {
+        if let Some(re) = &self.name {
+            if !re.is_match(&w.title) {
+                return false;
+            }
+        }
+        if let Some(re) = &self.class {
+            // app_id is the Wayland equivalent of WM_CLASS. Backends
+            // that don't expose it (uinput, bare libei) can't match
+            // here at all, which is correct.
+            match w.app_id.as_deref() {
+                Some(a) if re.is_match(a) => {}
+                _ => return false,
+            }
+        }
+        if let Some(p) = self.pid {
+            if w.pid != Some(p) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    use wdotool_core::WindowId;
+
+    fn win(id: &str, title: &str, app_id: Option<&str>, pid: Option<u32>) -> WindowInfo {
+        WindowInfo {
+            id: WindowId(id.into()),
+            title: title.into(),
+            app_id: app_id.map(str::to_string),
+            pid,
+        }
+    }
+
+    fn flags<'a>(
+        name: Option<&'a str>,
+        class: Option<&'a str>,
+        pid: Option<u32>,
+    ) -> SearchFlags<'a> {
+        SearchFlags {
+            name,
+            class,
+            pid,
+            regex: false,
+            ignore_case: false,
+        }
+    }
+
+    #[test]
+    fn substring_name_match_is_default() {
+        let f = SearchFilters::compile(flags(Some("fox"), None, None)).unwrap();
+        assert!(f.matches(&win("1", "Firefox", None, None)));
+        assert!(!f.matches(&win("2", "Chromium", None, None)));
+    }
+
+    #[test]
+    fn dot_in_pattern_is_escaped_without_regex_flag() {
+        // With --regex off, `Fire.fox` only matches the literal string,
+        // not `Fire?fox` (which a regex would match).
+        let f = SearchFilters::compile(flags(Some("Fire.fox"), None, None)).unwrap();
+        assert!(!f.matches(&win("1", "Firefox", None, None)));
+        assert!(f.matches(&win("2", "Fire.fox Browser", None, None)));
+    }
+
+    #[test]
+    fn regex_flag_enables_pattern_semantics() {
+        let f = SearchFilters::compile(SearchFlags {
+            name: Some("Fire.*x"),
+            class: None,
+            pid: None,
+            regex: true,
+            ignore_case: false,
+        })
+        .unwrap();
+        assert!(f.matches(&win("1", "Firefox", None, None)));
+        assert!(!f.matches(&win("2", "Chromium", None, None)));
+    }
+
+    #[test]
+    fn ignore_case_works_in_substring_mode() {
+        let f = SearchFilters::compile(SearchFlags {
+            name: Some("FIREFOX"),
+            class: None,
+            pid: None,
+            regex: false,
+            ignore_case: true,
+        })
+        .unwrap();
+        assert!(f.matches(&win("1", "Mozilla Firefox", None, None)));
+    }
+
+    #[test]
+    fn ignore_case_works_in_regex_mode() {
+        let f = SearchFilters::compile(SearchFlags {
+            name: Some("FIRE.*X"),
+            class: None,
+            pid: None,
+            regex: true,
+            ignore_case: true,
+        })
+        .unwrap();
+        assert!(f.matches(&win("1", "Mozilla Firefox", None, None)));
+    }
+
+    #[test]
+    fn class_filter_matches_app_id() {
+        let f = SearchFilters::compile(flags(None, Some("firefox"), None)).unwrap();
+        assert!(f.matches(&win("1", "Some Page", Some("org.mozilla.firefox"), None)));
+        assert!(!f.matches(&win("2", "kitty", Some("kitty"), None)));
+    }
+
+    #[test]
+    fn class_filter_skips_windows_without_app_id() {
+        let f = SearchFilters::compile(flags(None, Some("anything"), None)).unwrap();
+        // app_id None means the backend doesn't expose it (uinput,
+        // bare libei). Such windows can never satisfy a class filter.
+        assert!(!f.matches(&win("1", "Some Page", None, None)));
+    }
+
+    #[test]
+    fn pid_filter_requires_exact_match() {
+        let f = SearchFilters::compile(flags(None, None, Some(1234))).unwrap();
+        assert!(f.matches(&win("1", "Firefox", None, Some(1234))));
+        assert!(!f.matches(&win("2", "Firefox", None, Some(5678))));
+        // Backends that don't populate pid never match a pid filter.
+        assert!(!f.matches(&win("3", "Firefox", None, None)));
+    }
+
+    #[test]
+    fn filters_are_anded_together() {
+        let f =
+            SearchFilters::compile(flags(Some("Firefox"), Some("mozilla"), Some(1234))).unwrap();
+        assert!(f.matches(&win(
+            "1",
+            "Firefox - Wikipedia",
+            Some("org.mozilla.firefox"),
+            Some(1234)
+        )));
+        // Right title + class but wrong pid: rejected.
+        assert!(!f.matches(&win(
+            "2",
+            "Firefox - Wikipedia",
+            Some("org.mozilla.firefox"),
+            Some(5678)
+        )));
+    }
+
+    #[test]
+    fn no_filters_matches_everything() {
+        let f = SearchFilters::compile(flags(None, None, None)).unwrap();
+        assert!(f.matches(&win("1", "Anything", None, None)));
+        assert!(f.matches(&win("2", "Else", Some("kitty"), Some(99))));
+    }
+
+    #[test]
+    fn invalid_regex_pattern_returns_invalid_arg() {
+        let result = SearchFilters::compile(SearchFlags {
+            name: Some("[unclosed"),
+            class: None,
+            pid: None,
+            regex: true,
+            ignore_case: false,
+        });
+        match result {
+            Err(WdoError::InvalidArg(msg)) => assert!(msg.contains("--name")),
+            Err(other) => panic!("expected InvalidArg, got {other:?}"),
+            Ok(_) => panic!("expected InvalidArg, got Ok"),
+        }
+    }
 }
