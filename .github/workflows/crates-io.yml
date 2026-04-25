@@ -32,12 +32,30 @@ jobs:
         run: rustup show
 
       # wdotool-core must publish first because the wdotool binary crate
-      # depends on it from crates.io. cargo publish blocks until the index
-      # sees the new version, so the second invocation is safe.
+      # depends on it from crates.io. cargo publish only waits for its
+      # local registry view; CI runners have ephemeral indexes, so we
+      # poll the public index before publishing the binary crate to
+      # avoid "no matching package found" races.
       - name: cargo publish wdotool-core
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --locked -p wdotool-core
+
+      - name: Wait for wdotool-core to appear on crates.io
+        run: |
+          # Read the published version straight from the workspace.
+          version=$(grep -A2 '^\[workspace.package\]' Cargo.toml | grep '^version' | cut -d'"' -f2)
+          echo "Polling crates.io for wdotool-core@${version}..."
+          for i in $(seq 1 30); do
+            if curl -fsSL "https://crates.io/api/v1/crates/wdotool-core/${version}" >/dev/null 2>&1; then
+              echo "wdotool-core@${version} is live."
+              exit 0
+            fi
+            echo "Attempt ${i}: not yet visible, sleeping 10s..."
+            sleep 10
+          done
+          echo "ERROR: wdotool-core@${version} did not appear within 5 minutes." >&2
+          exit 1
 
       - name: cargo publish wdotool
         env:

@@ -172,7 +172,7 @@ Backend selection is automatic based on `XDG_CURRENT_DESKTOP` and compositor hin
 
 ## Building
 
-Requires Rust 1.75+ (for async-in-traits via `async_trait`). Builds cleanly on stable.
+Requires Rust 1.82+ (the CLI uses `Option::is_none_or`). Builds cleanly on stable.
 
 ```sh
 cargo build             # dev
