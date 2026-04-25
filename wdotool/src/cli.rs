@@ -102,6 +102,12 @@ pub enum Command {
     /// Show detected environment and backend capabilities.
     Info,
 
+    /// Print a structured capabilities report (schema v1) as JSON.
+    /// This is the machine-readable cousin of `info`. The schema is
+    /// documented at `docs/capabilities-schema.json` and is the
+    /// contract that wflows.com and other downstream tools consume.
+    Capabilities,
+
     /// Print an environment + backend availability report. Use this
     /// when a wdotool command isn't behaving the way you expect; the
     /// output names the missing piece (portal? group? extension?) and
