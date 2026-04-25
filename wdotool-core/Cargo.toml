@@ -18,8 +18,6 @@ libei = [
     "dep:enumflags2",
     "dep:futures-util",
     "dep:reis",
-    "dep:serde",
-    "dep:serde_json",
     "dep:xkbcommon",
 ]
 wlroots = [
@@ -31,13 +29,17 @@ wlroots = [
     "dep:xkbcommon",
     "dep:xkeysym",
 ]
-kde = ["libei", "dep:zbus", "dep:serde", "dep:serde_json"]
-gnome = ["libei", "dep:zbus", "dep:serde", "dep:serde_json"]
+kde = ["libei", "dep:zbus"]
+gnome = ["libei", "dep:zbus"]
 uinput = ["dep:input-linux", "dep:libc", "dep:xkbcommon"]
 
 [dependencies]
-# Always-on (used across all backends or by core abstractions)
+# Always-on. serde + serde_json are always-on because the public
+# capabilities module emits a versioned JSON schema that consumers
+# rely on regardless of which backends are compiled in.
 async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
 tracing = "0.1"
@@ -50,8 +52,6 @@ input-linux = { version = "0.7", optional = true }
 libc = { version = "0.2", optional = true }
 reis = { version = "0.6", features = ["tokio"], optional = true }
 rustix = { version = "1", features = ["fs"], optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
 wayland-client = { version = "0.31", optional = true }
 wayland-protocols = { version = "0.32", features = ["client"], optional = true }
 wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }

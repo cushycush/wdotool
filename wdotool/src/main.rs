@@ -48,6 +48,14 @@ async fn main() -> anyhow::Result<()> {
 
 async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Result<()> {
     match cmd {
+        Command::Capabilities => {
+            let value = wdotool_core::capabilities::report_json(env, backend);
+            // pretty for humans tailing the output; consumers parse
+            // either form fine.
+            let pretty = serde_json::to_string_pretty(&value)
+                .map_err(|e| WdoError::InvalidArg(format!("capabilities serialization: {e}")))?;
+            println!("{pretty}");
+        }
         Command::Info => {
             let caps = backend.capabilities();
             println!("backend:  {}", backend.name());

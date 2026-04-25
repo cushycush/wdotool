@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wdotool.dev/schemas/capabilities/v1.json",
+  "title": "wdotool capabilities report v1",
+  "description": "Output shape for `wdotool capabilities` and the public `wdotool_core::capabilities_report()` API. Forward-compat rules: schema_version=1 is the contract for this file; adding new optional fields to objects is backward-compatible (consumers MUST ignore unknown fields); removing or renaming fields, narrowing types, or changing enum semantics requires bumping schema_version and shipping a new schema file (capabilities/v2.json) plus an adapter.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "wdotool_version",
+    "backend",
+    "input",
+    "window",
+    "extras",
+    "platform"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Locked at 1 for this schema file. Future incompatible shapes ship as v2.json."
+    },
+    "wdotool_version": {
+      "type": "string",
+      "description": "Cargo package version of the running wdotool binary or wdotool-core consumer (e.g. `0.2.0`)."
+    },
+    "backend": {
+      "type": "object",
+      "required": ["selected", "kind", "delegated_to", "fallback_chain"],
+      "properties": {
+        "selected": {
+          "type": "string",
+          "description": "Name of the backend currently in use. One of: libei, wlroots, kde, gnome, uinput. New backends added in future versions extend this list (open enum)."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["direct", "daemon"],
+          "description": "How the backend was constructed. `direct` means the consumer drives the backend in-process. `daemon` means a long-lived `wdotool daemon` process holds the libei session and clients RPC into it. v0.2.0 only emits `direct`; `daemon` is reserved for v0.4.0+."
+        },
+        "delegated_to": {
+          "type": ["string", "null"],
+          "description": "When `kind=daemon`, names the underlying backend the daemon delegates to (e.g. `libei`). Always null when `kind=direct`."
+        },
+        "fallback_chain": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered list of backend names the detector would try, given the current environment. Diagnostic only; clients should not assume this list is exhaustive."
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "required": [
+        "key",
+        "type_text",
+        "type_unicode",
+        "mouse_move_absolute",
+        "mouse_move_relative",
+        "mouse_button",
+        "scroll",
+        "modifiers"
+      ],
+      "properties": {
+        "key": { "type": "boolean" },
+        "type_text": { "type": "boolean" },
+        "type_unicode": {
+          "type": "string",
+          "enum": ["full", "bmp_only", "ascii_only", "none"],
+          "description": "How well `type` handles non-ASCII text. `full` = arbitrary Unicode including astral plane (wlroots via transient keymap). `bmp_only` = Basic Multilingual Plane characters work, astral chars (e.g. emoji) are dropped. `ascii_only` = only ASCII works; non-ASCII chars are skipped with a warning (libei / kde / gnome / uinput, since the keymap is owned by the EIS server or the kernel). `none` = no text input."
+        },
+        "mouse_move_absolute": { "type": "boolean" },
+        "mouse_move_relative": { "type": "boolean" },
+        "mouse_button": { "type": "boolean" },
+        "scroll": { "type": "boolean" },
+        "modifiers": {
+          "type": "string",
+          "enum": ["send-only"],
+          "description": "Whether the backend can read the compositor's current modifier state. `send-only` is the only value v0.2.0 emits: Wayland's security model does not expose modifier reads to clients, so `--clearmodifiers` does an unconditional release rather than xdotool's save-and-restore. Future enum values may be added if a backend gains read access."
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "required": ["list", "active", "activate", "close", "match_by"],
+      "properties": {
+        "list": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "activate": { "type": "boolean" },
+        "close": { "type": "boolean" },
+        "match_by": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["title", "app_id", "pid", "class"]
+          },
+          "uniqueItems": true,
+          "description": "Which window attributes the backend can match on for `wdotool search`. v0.2.0 emits `[\"title\"]` everywhere (only matcher implemented). The element enum is closed: removing or renaming a value bumps schema_version. Adding values to a backend's array is backward-compat."
+        }
+      }
+    },
+    "extras": {
+      "type": "object",
+      "required": ["diag", "outputs", "record", "json_output"],
+      "properties": {
+        "diag": {
+          "type": "boolean",
+          "description": "`wdotool diag` is available."
+        },
+        "outputs": {
+          "type": "boolean",
+          "description": "`wdotool outputs --json` is available + `mousemove --output` works. v0.2.0 always false; planned for v0.4.0+."
+        },
+        "record": {
+          "type": "object",
+          "required": ["supported", "source"],
+          "properties": {
+            "supported": { "type": "boolean" },
+            "source": {
+              "type": ["string", "null"],
+              "enum": ["libei-receiver", null],
+              "description": "Where the recorder sources events. Locked enum; v0.2.0 always null. v0.4.0+ may emit `libei-receiver`."
+            }
+          },
+          "description": "`wdotool record` capability. Stub in v0.2.0 (always {supported: false, source: null})."
+        },
+        "json_output": {
+          "type": "boolean",
+          "description": "Whether commands accept `--json` for structured output. v0.2.0: true (diag and capabilities support it)."
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "required": ["desktop", "session_type", "compositor_hints"],
+      "properties": {
+        "desktop": {
+          "type": ["string", "null"],
+          "description": "Value of `XDG_CURRENT_DESKTOP`, or null when unset."
+        },
+        "session_type": {
+          "type": ["string", "null"],
+          "description": "Value of `XDG_SESSION_TYPE`, or null when unset."
+        },
+        "compositor_hints": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Detected compositor markers from environment variables. Open enum; v0.2.0 emits subsets of [\"sway\", \"hyprland\", \"wayfire\"]. Future hints may be added."
+        }
+      }
+    }
+  }
+}
