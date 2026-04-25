@@ -23,3 +23,42 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Debian / Ubuntu packaging metadata. Consumed by cargo-deb in the
+# distros.yml CI workflow on tag push to produce wdotool_<version>_amd64.deb.
+[package.metadata.deb]
+maintainer = "Matthew Cushing <hgxtymphwn@privaterelay.appleid.com>"
+section = "x11"
+priority = "optional"
+depends = "libxkbcommon0, libwayland-client0"
+extended-description = """\
+xdotool-compatible CLI for input automation on Wayland.
+
+Uses the protocols Wayland provides for this (libei via the XDG \
+RemoteDesktop portal, wlroots virtual-keyboard / virtual-pointer, \
+KWin scripting on KDE, a companion Shell extension on GNOME). Falls \
+back to /dev/uinput only when nothing better is available."""
+license-file = ["../LICENSE-MIT", "0"]
+assets = [
+    ["target/release/wdotool", "usr/bin/", "755"],
+    ["../README.md", "usr/share/doc/wdotool/README.md", "644"],
+    ["../CHANGELOG.md", "usr/share/doc/wdotool/CHANGELOG.md", "644"],
+    ["../LICENSE-MIT", "usr/share/doc/wdotool/LICENSE-MIT", "644"],
+    ["../LICENSE-APACHE", "usr/share/doc/wdotool/LICENSE-APACHE", "644"],
+]
+
+# Fedora / openSUSE / Mageia / RHEL packaging metadata. Consumed by
+# cargo-generate-rpm in distros.yml. License + summary come from
+# [package] above; only RPM-specific fields go here.
+[package.metadata.generate-rpm]
+summary = "xdotool-compatible automation CLI for Wayland"
+assets = [
+    { source = "target/release/wdotool", dest = "/usr/bin/wdotool", mode = "755" },
+    { source = "../README.md", dest = "/usr/share/doc/wdotool/README.md", mode = "644", doc = true },
+    { source = "../CHANGELOG.md", dest = "/usr/share/doc/wdotool/CHANGELOG.md", mode = "644", doc = true },
+    { source = "../LICENSE-MIT", dest = "/usr/share/licenses/wdotool/LICENSE-MIT", mode = "644", doc = true },
+    { source = "../LICENSE-APACHE", dest = "/usr/share/licenses/wdotool/LICENSE-APACHE", mode = "644", doc = true },
+]
+[package.metadata.generate-rpm.requires]
+libxkbcommon = "*"
+libwayland-client = "*"

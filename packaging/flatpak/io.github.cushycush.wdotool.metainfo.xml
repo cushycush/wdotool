@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>io.github.cushycush.wdotool</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>wdotool</name>
+  <summary>xdotool-compatible automation CLI for Wayland</summary>
+
+  <description>
+    <p>
+      wdotool is a command-line input automation tool for Wayland.
+      It does what xdotool does on X11 (synthetic keystrokes, mouse
+      moves, clicks, scrolling, window listing and focusing) but
+      using the protocols Wayland actually provides for this work:
+      libei via the XDG RemoteDesktop portal, wlroots
+      virtual-keyboard and virtual-pointer, KWin scripting on KDE,
+      and a companion Shell extension on GNOME.
+    </p>
+    <p>
+      It respects compositor focus and permissions instead of
+      bypassing them with /dev/uinput. The argv surface stays close
+      to xdotool so existing scripts can be ported with minimal
+      changes.
+    </p>
+  </description>
+
+  <provides>
+    <binary>wdotool</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/cushycush/wdotool</url>
+  <url type="bugtracker">https://github.com/cushycush/wdotool/issues</url>
+  <url type="vcs-browser">https://github.com/cushycush/wdotool</url>
+
+  <developer id="io.github.cushycush">
+    <name>Matthew Cushing</name>
+  </developer>
+
+  <launchable type="desktop-id">io.github.cushycush.wdotool.desktop</launchable>
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.6" date="2026-04-22">
+      <description>
+        <p>
+          Initial Flathub-targeted release. Adds the GNOME backend
+          paired with a companion Shell extension, libei Unicode
+          fallback for keys outside the active layout on wlroots,
+          and a control-character fix for the wlroots type command.
+        </p>
+      </description>
+    </release>
+  </releases>
+</component>

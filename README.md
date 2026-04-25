@@ -45,6 +45,15 @@ yay -S wdotool        # source build at the latest stable tag
 yay -S wdotool-bin    # prebuilt x86_64 binary (fastest install)
 yay -S wdotool-git    # rolling build from main
 
+# Debian / Ubuntu (starting v0.2.0). Grab the .deb attached to the
+# latest GitHub release: https://github.com/cushycush/wdotool/releases/latest
+sudo dpkg -i wdotool_*_amd64.deb
+
+# Fedora / openSUSE / RHEL (starting v0.2.0). Same idea, grab the
+# .rpm attached to the latest release.
+sudo dnf install ./wdotool-*.x86_64.rpm    # Fedora / RHEL
+sudo zypper install ./wdotool-*.x86_64.rpm # openSUSE
+
 # Prebuilt binary via shell installer (any glibc x86_64 Linux)
 curl -LsSf https://github.com/cushycush/wdotool/releases/latest/download/wdotool-installer.sh | sh
 
@@ -61,6 +70,8 @@ git clone https://github.com/cushycush/wdotool && cd wdotool
 cargo build --release
 ./target/release/wdotool --help
 ```
+
+Flathub submission is in progress. Until it lands, the manifest at `packaging/flatpak/io.github.cushycush.wdotool.yml` builds locally for anyone who wants to test it. See `packaging/flatpak/README.md` for the steps.
 
 Runtime deps: `libxkbcommon` and `libwayland-client`. Both are universally present on Wayland systems.
 

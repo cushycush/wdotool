@@ -1,0 +1,65 @@
+# Flathub manifest for wdotool.
+#
+# App ID is io.github.cushycush.wdotool because the project does not
+# own a domain. io.github.<username> is Flathub's documented escape
+# hatch for that case (see https://docs.flathub.org/docs/for-app-
+# authors/requirements/#application-id). org.cushycush.wdotool would
+# get bounced in review.
+#
+# This file lives in our repo as the source of truth. The actual
+# submission to flathub/flathub requires a few more steps (see
+# packaging/flatpak/README.md). The most important one is generating
+# cargo-sources.json so the Flatpak builder can fetch every Rust
+# dependency offline.
+
+app-id: io.github.cushycush.wdotool
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: wdotool
+
+# Sandbox permissions, kept minimum:
+#   --socket=wayland         libei + wlroots both reach the compositor here
+#   --share=ipc              X11 SHM and shared-memory libs need it
+#   --talk-name=*portal*     RemoteDesktop portal session for libei
+#   --talk-name=*KWin*       KDE backend talks to KWin scripting D-Bus
+#   --talk-name=*gnome.Shell.Extensions* GNOME backend talks to our extension
+#
+# uinput is excluded at compile time below (the sandbox has no
+# /dev/uinput access anyway). The diag command will tell users to
+# install the AUR/DEB/RPM build if they need uinput.
+finish-args:
+  - --socket=wayland
+  - --share=ipc
+  - --talk-name=org.freedesktop.portal.RemoteDesktop
+  - --talk-name=org.kde.KWin
+  - --talk-name=org.gnome.Shell.Extensions.wdotool@wdotool.github.io
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/wdotool/cargo
+
+modules:
+  - name: wdotool
+    buildsystem: simple
+    build-commands:
+      # uinput dropped: the Flatpak sandbox does not get /dev/uinput
+      # access, so the backend would error at runtime. Drop the dep
+      # at compile time too.
+      - cargo build --release --offline -p wdotool --no-default-features --features=libei,wlroots,kde,gnome
+      - install -Dm755 target/release/wdotool /app/bin/wdotool
+      - install -Dm644 packaging/flatpak/io.github.cushycush.wdotool.desktop /app/share/applications/io.github.cushycush.wdotool.desktop
+      - install -Dm644 packaging/flatpak/io.github.cushycush.wdotool.metainfo.xml /app/share/metainfo/io.github.cushycush.wdotool.metainfo.xml
+    sources:
+      # The release tarball gets pinned to a specific tag at
+      # submission time. For local dev (flatpak-builder against this
+      # repo), swap this for `- type: dir / path: ../..`.
+      - type: archive
+        url: https://github.com/cushycush/wdotool/archive/refs/tags/v0.2.0.tar.gz
+        sha256: PLACEHOLDER_FILL_AT_SUBMISSION_TIME
+      # cargo-sources.json is generated from Cargo.lock before
+      # submission. See packaging/flatpak/README.md.
+      - cargo-sources.json
