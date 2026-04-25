@@ -19,11 +19,12 @@ use futures_util::StreamExt;
 use reis::ei;
 use reis::event::{self as rev, DeviceCapability, EiEvent};
 use tokio::sync::oneshot;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 use xkbcommon::xkb;
 
 use super::Backend;
 use crate::error::{Result, WdoError};
+use crate::portal_token;
 use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
 
 const NAME: &str = "libei";
@@ -254,23 +255,71 @@ async fn open_context() -> Result<ei::Context> {
         .create_session(CreateSessionOptions::default())
         .await
         .map_err(portal_err)?;
-    remote
-        .select_devices(
-            &session,
-            SelectDevicesOptions::default()
-                .set_devices(DeviceType::Keyboard | DeviceType::Pointer)
-                .set_persist_mode(PersistMode::DoNot),
-        )
-        .await
-        .map_err(portal_err)?
-        .response()
-        .map_err(portal_err)?;
-    remote
-        .start(&session, None, StartOptions::default())
-        .await
-        .map_err(portal_err)?
-        .response()
-        .map_err(portal_err)?;
+
+    // Recovery flow for the portal restore_token. Without this cache,
+    // every wdotool invocation pops a consent dialog. With it: the
+    // first run prompts once, every subsequent run is silent until the
+    // user revokes.
+    //
+    // Algorithm:
+    //   1. Read the cached token (best-effort — any read failure
+    //      degrades to "no token, run first-run consent flow").
+    //   2. Try select_devices with the cached token attached.
+    //   3. On success → keep the (possibly new) token from the
+    //      response. On any error AND we had a cached token → retry
+    //      once without the token (forces the consent dialog).
+    //   4. On the retry, save whatever new token comes back. If retry
+    //      ALSO fails (e.g., user denies consent, compositor crashed
+    //      between the two attempts), keep the OLD cached file
+    //      untouched so the next session can still try it — the
+    //      compositor might have been hiccupping. Propagate the error.
+    //
+    // Error-class refinement is deferred: ashpd 0.13 doesn't expose a
+    // clean "token-invalid" variant, so v0.2.0 retries on ANY error
+    // from the with-token path. Real-world testing on KDE + GNOME
+    // (issue #1) will tell us which ashpd error variants represent
+    // transient vs. token-invalid failures, and a follow-up can
+    // narrow the retry condition.
+    let cached = match portal_token::load() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = ?e, "couldn't read portal token cache, treating as missing");
+            None
+        }
+    };
+
+    let used_cached = cached.is_some();
+    let cached_token: Option<String> = cached.as_ref().map(|c| c.token.clone());
+
+    // run_session_flow runs select_devices + start. Start's response
+    // is what carries the freshly-issued restore_token, so both calls
+    // need to live inside the retry boundary.
+    let selected = match run_session_flow(&remote, &session, cached_token.as_deref()).await {
+        Ok(devices) => devices,
+        Err(first_err) if used_cached => {
+            info!(
+                error = %first_err,
+                "cached portal token did not satisfy session start, retrying with consent dialog"
+            );
+            run_session_flow(&remote, &session, None)
+                .await
+                .map_err(portal_err)?
+        }
+        Err(err) => return Err(portal_err(err)),
+    };
+
+    // Only persist on Some. The portal can return None on a successful
+    // start (e.g., user opted out of "remember this choice"); in that
+    // case leaving the previous cache untouched is correct — a stale
+    // token will trigger the retry path next time and get refreshed
+    // there.
+    if let Some(new_token) = selected.restore_token() {
+        let backend = detect_portal_backend();
+        if let Err(e) = portal_token::save(new_token, backend) {
+            warn!(error = ?e, "couldn't persist portal token, session still works");
+        }
+    }
+
     let fd = remote
         .connect_to_eis(&session, ConnectToEISOptions::default())
         .await
@@ -280,6 +329,40 @@ async fn open_context() -> Result<ei::Context> {
         backend: NAME,
         source: Box::new(e),
     })
+}
+
+async fn run_session_flow(
+    remote: &RemoteDesktop,
+    session: &ashpd::desktop::Session<RemoteDesktop>,
+    restore_token: Option<&str>,
+) -> ashpd::Result<ashpd::desktop::remote_desktop::SelectedDevices> {
+    let select_opts = SelectDevicesOptions::default()
+        .set_devices(DeviceType::Keyboard | DeviceType::Pointer)
+        .set_persist_mode(PersistMode::ExplicitlyRevoked)
+        .set_restore_token(restore_token);
+    remote
+        .select_devices(session, select_opts)
+        .await?
+        .response()?;
+    remote
+        .start(session, None, StartOptions::default())
+        .await?
+        .response()
+}
+
+/// Best-effort identifier of which portal backend issued the token.
+/// Diagnostic only — the retry-without-token recovery flow handles
+/// backend switches even if the cached `portal_backend` is wrong.
+fn detect_portal_backend() -> &'static str {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+    let lower = desktop.to_lowercase();
+    if lower.contains("gnome") {
+        "gnome"
+    } else if lower.contains("kde") {
+        "kde"
+    } else {
+        "other"
+    }
 }
 
 fn portal_err(e: ashpd::Error) -> WdoError {
