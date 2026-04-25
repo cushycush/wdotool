@@ -12,7 +12,6 @@ pub enum WdoError {
     },
 
     #[error("backend '{backend}' failed: {source}")]
-    #[allow(dead_code)] // used by real backends once they land
     Backend {
         backend: &'static str,
         #[source]
