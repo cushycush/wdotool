@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `wdotool search` grew real matchers. `--class` now works alongside the existing `--name` (filters on Wayland app_id, the closest equivalent to X11's WM_CLASS). `--pid` filters by exact process id. `--regex` switches `--name` and `--class` from substring matching to full regex; `--ignore-case` works in both modes. The capabilities schema's `window.match_by` field grew from `["title"]` to `["title", "app_id", "pid"]` accordingly. Exit code semantics now match xdotool: `wdotool search` returns 1 when nothing matches and 0 when it finds at least one window, so shell scripts can branch on `if wdotool search --name foo; then ...`.
+
 ## [0.2.0] — 2026-04-25
 
 ### Added

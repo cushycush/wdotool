@@ -43,11 +43,11 @@ This page is the honest table. If you are porting a script and the command you w
 
 | xdotool command | wdotool | notes |
 | --- | --- | --- |
-| `search` | 🧪 | Implemented with `--name` (title regex) and `--class` (substring on app_id). xdotool's `--role`, `--classname`, `--screen`, `--desktop`, `--all`, `--any` are not implemented |
+| `search` | ✅ | `--name` (title), `--class` (Wayland app_id), `--pid`. Substring matching by default; pass `--regex` for full regex semantics, `--ignore-case` for case-insensitive. Exits 1 if no matches (matches xdotool's behavior). xdotool's `--role`, `--classname`, `--screen`, `--desktop`, `--all`, `--any` aren't implemented |
 | `getactivewindow` | ✅ | Returns the focused window's id |
 | `getwindowfocus` | ✅ | Same as `getactivewindow` on Wayland (Wayland does not expose pointer-focus separately from keyboard-focus to clients) |
 | `getwindowname` | ❌ | Use `wdotool search` and parse the output for now |
-| `getwindowpid` | ❌ | Same. The `pid` field is in `WindowInfo` already; just not surfaced in the CLI yet |
+| `getwindowpid` | ❌ | Same. The `pid` field is in `WindowInfo` and you can filter by it via `wdotool search --pid <n>`, but there's no dedicated `getwindowpid <id>` command yet |
 | `getwindowclassname` | ❌ |  |
 | `getwindowgeometry` | ❌ | Compositor-dependent; wlroots can do it through foreign-toplevel, KWin via scripting. Not built yet |
 
