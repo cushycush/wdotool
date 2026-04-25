@@ -120,6 +120,19 @@ pub enum Command {
     /// Close a window by id.
     Windowclose { id: String },
 
+    /// Print the title of the window with the given id.
+    Getwindowname { id: String },
+
+    /// Print the PID of the window with the given id. Exits 1 if the
+    /// backend can't resolve a PID for that window (some compositors
+    /// don't expose it).
+    Getwindowpid { id: String },
+
+    /// Print the app_id of the window with the given id. This is the
+    /// Wayland equivalent of xdotool's WM_CLASS classname. Exits 1 if
+    /// the window has no app_id set.
+    Getwindowclassname { id: String },
+
     /// Show detected environment and backend capabilities.
     Info,
 
