@@ -78,7 +78,7 @@ impl LibeiBackend {
             })
             .map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::Error::new(e),
+                source: Box::new(e),
             })?;
 
         // Block for the initial connection (fast — no user interaction here).
@@ -86,11 +86,11 @@ impl LibeiBackend {
             .recv()
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("dispatcher thread exited before sending state"),
+                source: "dispatcher thread exited before sending state".into(),
             })?
-            .map_err(|msg| WdoError::Backend {
+            .map_err(|msg: String| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!(msg),
+                source: msg.into(),
             })?;
 
         let state = connection.state.clone();
@@ -102,18 +102,17 @@ impl LibeiBackend {
             Ok(Err(_)) => {
                 return Err(WdoError::Backend {
                     backend: NAME,
-                    source: anyhow::anyhow!("dispatcher ended before any device resumed"),
+                    source: "dispatcher ended before any device resumed".into(),
                 });
             }
             Err(_) => {
                 return Err(WdoError::Backend {
                     backend: NAME,
-                    source: anyhow::anyhow!(
-                        "timed out waiting for libei device.\n\
-                         Common cause: the RemoteDesktop portal dialog was \
-                         dismissed or denied. Try again and accept, or check \
-                         your desktop's privacy / remote-desktop settings."
-                    ),
+                    source: "timed out waiting for libei device.\n\
+                             Common cause: the RemoteDesktop portal dialog was \
+                             dismissed or denied. Try again and accept, or check \
+                             your desktop's privacy / remote-desktop settings."
+                        .into(),
                 });
             }
         }
@@ -156,7 +155,7 @@ impl LibeiBackend {
         device.device().stop_emulating(serial);
         st.connection.flush().map_err(|e| WdoError::Backend {
             backend: NAME,
-            source: anyhow::anyhow!("ei flush failed: {e}"),
+            source: format!("ei flush failed: {e}").into(),
         })?;
         Ok(())
     }
@@ -279,7 +278,7 @@ async fn open_context() -> Result<ei::Context> {
     let stream = UnixStream::from(fd);
     ei::Context::new(stream).map_err(|e| WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: Box::new(e),
     })
 }
 
@@ -301,8 +300,8 @@ fn portal_err(e: ashpd::Error) -> WdoError {
     WdoError::Backend {
         backend: NAME,
         source: match hint {
-            Some(h) => anyhow::anyhow!("{msg}{h}"),
-            None => anyhow::Error::new(e),
+            Some(h) => format!("{msg}{h}").into(),
+            None => Box::new(e),
         },
     }
 }
@@ -363,7 +362,7 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
 fn load_keymap(km: &rev::Keymap) -> Result<xkb::Keymap> {
     let fd = km.fd.try_clone().map_err(|e| WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: Box::new(e),
     })?;
     let ctx = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
     let keymap = unsafe {
@@ -377,11 +376,11 @@ fn load_keymap(km: &rev::Keymap) -> Result<xkb::Keymap> {
     }
     .map_err(|e| WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: Box::new(e),
     })?
     .ok_or_else(|| WdoError::Backend {
         backend: NAME,
-        source: anyhow::anyhow!("xkb_keymap_new_from_buffer returned null"),
+        source: "xkb_keymap_new_from_buffer returned null".into(),
     })?;
     Ok(keymap)
 }

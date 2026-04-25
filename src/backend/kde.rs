@@ -121,7 +121,7 @@ impl KdeBackend {
             .await
             .map_err(|err| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("libei input init failed: {err}"),
+                source: format!("libei input init failed: {err}").into(),
             })?;
         let input_caps = libei.capabilities();
 
@@ -164,7 +164,7 @@ impl KdeBackend {
         if script_id < 0 {
             return Err(WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("loadScriptFromText returned {script_id}"),
+                source: format!("loadScriptFromText returned {script_id}").into(),
             });
         }
         // Plasma 6 runs newly-loaded scripts when `start()` is called on
@@ -186,17 +186,17 @@ impl KdeBackend {
             .await
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("timed out waiting for KWin script callback"),
+                source: "timed out waiting for KWin script callback".into(),
             })?
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("KWin script aborted before callback"),
+                source: "KWin script aborted before callback".into(),
             })?;
 
         let parsed: Vec<ScriptWindow> =
             serde_json::from_str(&json).map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("invalid windows payload: {e}"),
+                source: format!("invalid windows payload: {e}").into(),
             })?;
         Ok(parsed.into_iter().map(Into::into).collect())
     }
@@ -213,11 +213,11 @@ impl KdeBackend {
             .await
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("timed out waiting for KWin script callback"),
+                source: "timed out waiting for KWin script callback".into(),
             })?
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("KWin script aborted before callback"),
+                source: "KWin script aborted before callback".into(),
             })?;
 
         if json.is_empty() || json == "null" {
@@ -225,7 +225,7 @@ impl KdeBackend {
         }
         let parsed: ScriptWindow = serde_json::from_str(&json).map_err(|e| WdoError::Backend {
             backend: NAME,
-            source: anyhow::anyhow!("invalid active-window payload: {e}"),
+            source: format!("invalid active-window payload: {e}").into(),
         })?;
         Ok(Some(parsed.into()))
     }
@@ -250,7 +250,7 @@ impl KdeBackend {
             .await
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("timed out waiting for KWin {what} callback"),
+                source: format!("timed out waiting for KWin {what} callback").into(),
             })?
             .unwrap_or(false);
         Ok(ok)
@@ -260,7 +260,7 @@ impl KdeBackend {
 fn dbus_err(e: zbus::Error) -> WdoError {
     WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: Box::new(e),
     }
 }
 

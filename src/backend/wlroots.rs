@@ -70,18 +70,18 @@ impl WlrootsBackend {
             })
             .map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::Error::new(e),
+                source: Box::new(e),
             })?;
 
         let caps_initial = ready_rx
             .await
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("worker thread exited before reporting ready"),
+                source: "worker thread exited before reporting ready".into(),
             })?
-            .map_err(|msg| WdoError::Backend {
+            .map_err(|msg: String| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!(msg),
+                source: msg.into(),
             })?;
 
         let caps = Arc::new(Mutex::new(caps_initial));
@@ -99,11 +99,11 @@ impl WlrootsBackend {
         let (tx, rx) = oneshot::channel::<Result<T>>();
         self.tx.send(make(tx)).map_err(|_| WdoError::Backend {
             backend: NAME,
-            source: anyhow::anyhow!("worker thread is gone"),
+            source: "worker thread is gone".into(),
         })?;
         rx.await.map_err(|_| WdoError::Backend {
             backend: NAME,
-            source: anyhow::anyhow!("worker dropped reply channel"),
+            source: "worker dropped reply channel".into(),
         })?
     }
 }
@@ -665,7 +665,7 @@ fn do_scroll(
 fn wayland_io_err<E: std::fmt::Display>(e: E) -> WdoError {
     WdoError::Backend {
         backend: NAME,
-        source: anyhow::anyhow!("wayland I/O: {e}"),
+        source: format!("wayland I/O: {e}").into(),
     }
 }
 
@@ -692,7 +692,7 @@ fn compile_keymap() -> Result<SafeKeymap> {
         xkb::Keymap::new_from_names(&ctx, "", "", "", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS)
             .ok_or_else(|| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("xkb_keymap_new_from_names returned null"),
+                source: "xkb_keymap_new_from_names returned null".into(),
             })?;
     Ok(SafeKeymap(keymap))
 }
@@ -823,7 +823,7 @@ fn upload_keymap_text(vk_obj: &vk::ZwpVirtualKeyboardV1, keymap_text: &str) -> R
     )
     .map_err(|e| WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: Box::new(e),
     })?;
     let mut file = std::fs::File::from(fd);
     file.write_all(bytes).map_err(wayland_io_err)?;

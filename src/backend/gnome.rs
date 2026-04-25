@@ -74,7 +74,7 @@ impl GnomeExtBackend {
             .await
             .map_err(|err| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("libei input init failed: {err}"),
+                source: format!("libei input init failed: {err}").into(),
             })?;
         let input_caps = libei.capabilities();
 
@@ -83,12 +83,13 @@ impl GnomeExtBackend {
             .await
             .map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!(
+                source: format!(
                     "bridge proxy init failed: {e}. \
                      Install the wdotool GNOME Shell extension from \
                      packaging/gnome-extension/wdotool@wdotool.github.io/ and \
                      enable it with `gnome-extensions enable wdotool@wdotool.github.io`."
-                ),
+                )
+                .into(),
             })?;
 
         // Ping the service so we fail fast if the extension isn't enabled
@@ -100,11 +101,12 @@ impl GnomeExtBackend {
             .await
             .map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!(
+                source: format!(
                     "wdotool GNOME Shell extension is not responding ({e}). \
                      Run `gnome-extensions enable wdotool@wdotool.github.io` \
                      or install from packaging/gnome-extension/."
-                ),
+                )
+                .into(),
             })?;
 
         debug!("gnome bridge proxy ready");
@@ -119,7 +121,7 @@ impl GnomeExtBackend {
 fn dbus_err(e: zbus::Error) -> WdoError {
     WdoError::Backend {
         backend: NAME,
-        source: anyhow::Error::new(e),
+        source: Box::new(e),
     }
 }
 
@@ -163,7 +165,7 @@ impl Backend for GnomeExtBackend {
         let parsed: Vec<ExtWindow> =
             serde_json::from_str(&json).map_err(|e| WdoError::Backend {
                 backend: NAME,
-                source: anyhow::anyhow!("invalid windows payload: {e}"),
+                source: format!("invalid windows payload: {e}").into(),
             })?;
         Ok(parsed.into_iter().map(Into::into).collect())
     }
@@ -175,7 +177,7 @@ impl Backend for GnomeExtBackend {
         }
         let w: ExtWindow = serde_json::from_str(&json).map_err(|e| WdoError::Backend {
             backend: NAME,
-            source: anyhow::anyhow!("invalid active-window payload: {e}"),
+            source: format!("invalid active-window payload: {e}").into(),
         })?;
         Ok(Some(w.into()))
     }
