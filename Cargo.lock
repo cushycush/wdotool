@@ -1271,6 +1271,8 @@ version = "0.1.6"
 dependencies = [
  "anyhow",
  "clap",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing-subscriber",
  "wdotool-core",

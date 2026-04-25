@@ -33,7 +33,7 @@ Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backe
 
 ³ Implemented but unverified on a real Plasma session ([issue #1](https://github.com/cushycush/wdotool/issues/1)).
 
-⁴ **Experimental.** Requires the companion GNOME Shell extension in `packaging/gnome-extension/wdotool@wdotool.github.io/` — see [issue #2](https://github.com/cushycush/wdotool/issues/2). Shipped but unverified on a live GNOME session; please try it and file issues. Without the extension, `gnome` falls back to bare libei (input only).
+⁴ Requires the companion GNOME Shell extension at `packaging/gnome-extension/wdotool@wdotool.github.io/`. Shipped in v0.1.6 but not yet smoke-tested on a real GNOME session; if you run GNOME, please try it and file [issue #2](https://github.com/cushycush/wdotool/issues/2) if anything breaks. Without the extension, `gnome` falls back to bare libei (input only).
 
 ## Install
 
@@ -70,6 +70,8 @@ Drop-in xdotool replacement for the common commands:
 
 ```sh
 wdotool info                              # show detected backend + capabilities
+wdotool diag                              # env + backend availability report
+wdotool diag --copy                       # same, piped to the clipboard for bug reports
 
 wdotool key ctrl+c                        # send Ctrl+C
 wdotool keydown shift                     # press and hold Shift
@@ -109,6 +111,14 @@ Global flags:
 
 Opens an `org.freedesktop.portal.RemoteDesktop` session via the XDG portal, negotiates a libei socket, handshakes as a sender context, and emits input through the compositor's own libei implementation. Full focus awareness and permission prompts. **Preferred on GNOME and KDE.**
 
+The portal asks for consent on the first run (a "Allow this app to control your computer?" dialog). wdotool caches the issued `restore_token` at `$XDG_STATE_HOME/wdotool/portal.token` (mode 0600). Every later run presents the token and skips the dialog. The flow stays silent until the user revokes from the portal's settings UI, then the next run prompts again.
+
+To reset the consent flow manually, delete the cache file:
+
+```sh
+rm ~/.local/state/wdotool/portal.token
+```
+
 **Requirements:**
 - `xdg-desktop-portal` + a backend that exports `org.freedesktop.portal.RemoteDesktop`. `xdg-desktop-portal-gnome` (GNOME 46+) and `xdg-desktop-portal-kde` (KDE Plasma 6) both ship it.
 - On Hyprland, `xdg-desktop-portal-hyprland` 1.3.11 does **not** yet expose RemoteDesktop. Use the wlroots backend instead.
@@ -128,21 +138,21 @@ Composes libei (for input) with KWin-scripting window management over D-Bus. Gen
 - `xdg-desktop-portal-kde` for the libei input path.
 - KWin 5.22+ for the Scripting D-Bus interface.
 
-### gnome (experimental)
+### gnome
 
-Pairs libei (for input, via GNOME's RemoteDesktop portal) with a companion GNOME Shell extension that exposes `ListWindows` / `GetActiveWindow` / `ActivateWindow` / `CloseWindow` on the session bus. GNOME Shell has no generic external window API, so the extension is mandatory for window management — without it, the detector falls back to bare libei automatically.
+Pairs libei (for input, via GNOME's RemoteDesktop portal) with a companion GNOME Shell extension that exposes `ListWindows`, `GetActiveWindow`, `ActivateWindow`, and `CloseWindow` on the session bus. GNOME Shell has no generic external window API, so the extension is the only way to do window management. Without the extension, the detector falls back to bare libei (input only) automatically.
 
-**Status:** shipped in v0.1.6 but not yet dogfooded on a live GNOME session (development machine is Hyprland). Please try it and open issues for anything that misbehaves — see [#2](https://github.com/cushycush/wdotool/issues/2).
+**Status:** shipped in v0.1.6 but the project is maintained from Hyprland, so the GNOME backend has not been smoke-tested on a real session yet. If you run GNOME, install the extension and try a few `wdotool` commands. Bug reports go to [#2](https://github.com/cushycush/wdotool/issues/2). `wdotool diag` will tell you whether the extension is found.
 
 **Requirements:**
 - `xdg-desktop-portal-gnome` for the libei input path (GNOME 46+ ships it).
 - The `wdotool@wdotool.github.io` extension, installable from `packaging/gnome-extension/`:
   ```sh
   cp -r packaging/gnome-extension/wdotool@wdotool.github.io ~/.local/share/gnome-shell/extensions/
-  # log out + log back in, then enable:
+  # log out, log back in, then enable:
   gnome-extensions enable wdotool@wdotool.github.io
   ```
-  The extension targets GNOME Shell 45–48. No background activity — it only handles D-Bus method calls from the wdotool CLI.
+  The extension targets GNOME Shell 45 through 48. It has no background activity; it only responds to D-Bus method calls from the wdotool CLI.
 
 ### uinput
 
@@ -170,14 +180,44 @@ Creates a virtual input device via `/dev/uinput` and writes raw `input_event` st
 
 Backend selection is automatic based on `XDG_CURRENT_DESKTOP` and compositor hints (`SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, etc.). The detector tries the preferred backend first and falls through to alternatives if it fails to bootstrap — use `--backend` to force a specific one.
 
+## Use as a library
+
+The engine lives in a separate `wdotool-core` crate, so other Rust projects can drive input directly without spawning a subprocess. The CLI is a thin wrapper around the same crate.
+
+```toml
+# Cargo.toml
+[dependencies]
+wdotool-core = "0.1"
+```
+
+Each backend is gated behind a Cargo feature (`libei`, `wlroots`, `kde`, `gnome`, `uinput`). Default-on enables all five. To skip a backend, opt out:
+
+```toml
+# Drop uinput's input-linux + libc deps; useful in sandboxed builds (Flatpak)
+# where /dev/uinput is not reachable.
+wdotool-core = { version = "0.1", default-features = false, features = ["libei", "wlroots", "kde", "gnome"] }
+```
+
+Public API (intentionally small):
+
+```rust
+use wdotool_core::{detector, Backend, KeyDirection, MouseButton};
+
+let env = detector::Environment::detect();
+let backend = detector::build(&env, None).await?;
+backend.key("ctrl+c", KeyDirection::PressRelease).await?;
+```
+
+The full list: `Backend` trait, `DynBackend`, `detector::{build, Environment, BackendKind}`, `keysym::parse_chain`, the value types (`Capabilities`, `WindowInfo`, etc.), and `WdoError` / `Result`. Per-backend types stay private; you build through `detector::build`.
+
 ## Building
 
 Requires Rust 1.82+ (the CLI uses `Option::is_none_or`). Builds cleanly on stable.
 
 ```sh
-cargo build             # dev
-cargo build --release   # ~4 MB stripped binary
-cargo test              # unit tests
+cargo build             # dev (workspace root builds both crates)
+cargo build --release   # release binary at target/release/wdotool
+cargo test              # 32 unit tests across both crates
 ```
 
 System libraries at build time: `libxkbcommon-dev` and `libwayland-dev` (Debian/Ubuntu names; same underlying libraries elsewhere).
@@ -193,33 +233,42 @@ System libraries at build time: `libxkbcommon-dev` and `libwayland-dev` (Debian/
 
 ## Project layout
 
+The repo is a Cargo workspace with two crates.
+
 ```
-src/
-  main.rs            # CLI entry (tokio)
-  cli.rs             # clap subcommand definitions
-  error.rs           # WdoError
-  types.rs           # Capabilities, KeyDirection, MouseButton, WindowInfo
-  keysym.rs          # ctrl+shift+a parser
-  backend/
-    mod.rs           # Backend trait (async_trait)
-    detector.rs      # runtime backend selection
-    libei.rs         # RemoteDesktop portal + reis
-    wlroots.rs       # virtual-keyboard/pointer + foreign-toplevel + wl_output
-    kde.rs           # libei input + KWin-scripting window ops via D-Bus
-    uinput.rs        # /dev/uinput fallback
-    stub.rs          # PendingBackend placeholder
+wdotool-core/        # library: the engine other Rust code can use
+  src/
+    lib.rs           # public API re-exports
+    backend/
+      mod.rs         # Backend trait (async_trait)
+      detector.rs    # runtime backend selection
+      libei.rs       # RemoteDesktop portal + reis
+      wlroots.rs     # virtual-keyboard/pointer + foreign-toplevel + wl_output
+      kde.rs         # libei input + KWin-scripting window ops via D-Bus
+      gnome.rs       # libei input + GNOME Shell extension D-Bus bridge
+      uinput.rs      # /dev/uinput fallback
+    types.rs         # Capabilities, KeyDirection, MouseButton, WindowInfo
+    error.rs         # WdoError, Result
+    keysym.rs        # ctrl+shift+a parser
+    portal_token.rs  # libei restore_token cache (no more consent spam)
+
+wdotool/             # binary: the CLI
+  src/
+    main.rs          # tokio entrypoint
+    cli.rs           # clap subcommand definitions
+    diag.rs          # `wdotool diag` (env + backend availability)
 ```
 
-Every real backend runs on a dedicated OS thread because the underlying event streams (`reis::EiConvertEventStream`, `wayland_client::EventQueue`) aren't `Send`. Input ops are dispatched to those threads via channels.
+Every real backend runs on a dedicated OS thread because the underlying event streams (`reis::EiConvertEventStream`, `wayland_client::EventQueue`) are not `Send`. Input ops dispatch to those threads via channels.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Contributing
 
-Pull requests and issue reports welcome. Two open issues specifically want outside help:
+Pull requests and issue reports welcome. Two open issues specifically want outside help, both about verifying backends on real desktops since the project is maintained from Hyprland:
 
-- [#1](https://github.com/cushycush/wdotool/issues/1) — `help wanted`, `kde`, `needs-testing`. The KDE backend is implemented but has never been exercised against an actual Plasma session (project is maintained from Hyprland). Running `wdotool --backend kde info` on Plasma 5 or 6 and reporting the result would meaningfully de-risk the backend.
-- [#2](https://github.com/cushycush/wdotool/issues/2) — `help wanted`, `gnome`, `enhancement`. GNOME window management needs a Shell extension; the Rust side follows the KDE pattern once the extension exists. Happy to pair on the design or review PRs.
+- [#1](https://github.com/cushycush/wdotool/issues/1) `help wanted`, `kde`, `needs-testing`. The KDE backend is implemented but has never been exercised against an actual Plasma session. Running `wdotool --backend kde info` on Plasma 5 or 6 and posting the output (or a `wdotool diag --copy` paste) would meaningfully de-risk the backend.
+- [#2](https://github.com/cushycush/wdotool/issues/2) `help wanted`, `gnome`, `needs-testing`. The GNOME backend is fully shipped, including the companion Shell extension at `packaging/gnome-extension/wdotool@wdotool.github.io/`. What's missing is real-session smoke testing on GNOME 46+. Install the extension, run a few `wdotool` commands, and post the result.
 
 For other bugs or features, open an issue first for anything non-trivial so the shape can be agreed before code lands.
 

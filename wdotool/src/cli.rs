@@ -101,4 +101,19 @@ pub enum Command {
 
     /// Show detected environment and backend capabilities.
     Info,
+
+    /// Print an environment + backend availability report. Use this
+    /// when a wdotool command isn't behaving the way you expect; the
+    /// output names the missing piece (portal? group? extension?) and
+    /// prints the fix command. Pass `--copy` to send the report to
+    /// the clipboard, `--json` for machine-readable output.
+    Diag {
+        /// Emit machine-readable JSON instead of markdown.
+        #[arg(long)]
+        json: bool,
+        /// Copy the markdown report to the clipboard via wl-copy
+        /// (falls back to xclip).
+        #[arg(long)]
+        copy: bool,
+    },
 }
