@@ -1,9 +1,14 @@
 use tracing::{debug, info, warn};
 
+#[cfg(feature = "gnome")]
 use super::gnome::GnomeExtBackend;
+#[cfg(feature = "kde")]
 use super::kde::KdeBackend;
+#[cfg(feature = "libei")]
 use super::libei::LibeiBackend;
+#[cfg(feature = "uinput")]
 use super::uinput::UinputBackend;
+#[cfg(feature = "wlroots")]
 use super::wlroots::WlrootsBackend;
 use super::DynBackend;
 use crate::error::{Result, WdoError};
@@ -171,11 +176,45 @@ pub async fn build(env: &Environment, forced: Option<BackendKind>) -> Result<Dyn
 
 async fn build_one(kind: BackendKind) -> Result<DynBackend> {
     match kind {
+        #[cfg(feature = "libei")]
         BackendKind::Libei => Ok(Box::new(LibeiBackend::try_new().await?)),
+        #[cfg(not(feature = "libei"))]
+        BackendKind::Libei => Err(WdoError::NotSupported {
+            backend: "libei",
+            what: "this build does not include the libei backend",
+        }),
+
+        #[cfg(feature = "wlroots")]
         BackendKind::Wlroots => Ok(Box::new(WlrootsBackend::try_new().await?)),
+        #[cfg(not(feature = "wlroots"))]
+        BackendKind::Wlroots => Err(WdoError::NotSupported {
+            backend: "wlroots",
+            what: "this build does not include the wlroots backend",
+        }),
+
+        #[cfg(feature = "kde")]
         BackendKind::KdeDBus => Ok(Box::new(KdeBackend::try_new().await?)),
+        #[cfg(not(feature = "kde"))]
+        BackendKind::KdeDBus => Err(WdoError::NotSupported {
+            backend: "kde",
+            what: "this build does not include the kde backend",
+        }),
+
+        #[cfg(feature = "gnome")]
         BackendKind::GnomeExt => Ok(Box::new(GnomeExtBackend::try_new().await?)),
+        #[cfg(not(feature = "gnome"))]
+        BackendKind::GnomeExt => Err(WdoError::NotSupported {
+            backend: "gnome",
+            what: "this build does not include the gnome backend",
+        }),
+
+        #[cfg(feature = "uinput")]
         BackendKind::Uinput => Ok(Box::new(UinputBackend::try_new()?)),
+        #[cfg(not(feature = "uinput"))]
+        BackendKind::Uinput => Err(WdoError::NotSupported {
+            backend: "uinput",
+            what: "this build does not include the uinput backend",
+        }),
     }
 }
 

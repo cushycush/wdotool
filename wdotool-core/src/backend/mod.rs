@@ -7,10 +7,15 @@ use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo
 
 pub mod detector;
 
+#[cfg(feature = "gnome")]
 pub(crate) mod gnome;
+#[cfg(feature = "kde")]
 pub(crate) mod kde;
+#[cfg(feature = "libei")]
 pub(crate) mod libei;
+#[cfg(feature = "uinput")]
 pub(crate) mod uinput;
+#[cfg(feature = "wlroots")]
 pub(crate) mod wlroots;
 
 #[async_trait]
