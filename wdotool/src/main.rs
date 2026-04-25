@@ -1,19 +1,15 @@
-mod backend;
 mod cli;
-mod error;
-mod keysym;
-mod types;
 
 use std::time::Duration;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use backend::detector::{self, BackendKind, Environment};
-use backend::Backend;
+use wdotool_core::detector::{self, BackendKind, Environment};
+use wdotool_core::keysym;
+use wdotool_core::{Backend, KeyDirection, MouseButton, Result, WdoError, WindowId};
+
 use cli::{Cli, Command};
-use error::{Result, WdoError};
-use types::{KeyDirection, MouseButton, WindowId};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -1,0 +1,59 @@
+[package]
+name = "wdotool-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Wayland input/window primitives — engine library for wdotool"
+readme = "../README.md"
+keywords = ["wayland", "xdotool", "automation", "input", "libei"]
+categories = ["os::linux-apis"]
+
+[features]
+default = ["libei", "wlroots", "kde", "gnome", "uinput"]
+libei = [
+    "dep:ashpd",
+    "dep:enumflags2",
+    "dep:futures-util",
+    "dep:reis",
+    "dep:xkbcommon",
+]
+wlroots = [
+    "dep:rustix",
+    "dep:wayland-client",
+    "dep:wayland-protocols",
+    "dep:wayland-protocols-misc",
+    "dep:wayland-protocols-wlr",
+    "dep:xkbcommon",
+    "dep:xkeysym",
+]
+kde = ["libei", "dep:zbus"]
+gnome = ["libei", "dep:zbus"]
+uinput = ["dep:input-linux", "dep:libc", "dep:xkbcommon"]
+
+[dependencies]
+# Always-on
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1"
+
+# Optional, gated by feature flags above
+ashpd = { version = "0.13", features = ["tokio", "remote_desktop", "screencast"], optional = true }
+enumflags2 = { version = "0.7", optional = true }
+futures-util = { version = "0.3", optional = true }
+input-linux = { version = "0.7", optional = true }
+libc = { version = "0.2", optional = true }
+reis = { version = "0.6", features = ["tokio"], optional = true }
+rustix = { version = "1", features = ["fs"], optional = true }
+wayland-client = { version = "0.31", optional = true }
+wayland-protocols = { version = "0.32", features = ["client"], optional = true }
+wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
+wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
+xkbcommon = { version = "0.9", features = ["wayland"], optional = true }
+xkeysym = { version = "0.2", optional = true }
+zbus = { version = "5", default-features = false, features = ["tokio"], optional = true }

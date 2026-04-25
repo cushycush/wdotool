@@ -1,0 +1,23 @@
+[package]
+name = "wdotool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "xdotool-compatible automation for Wayland"
+readme = "../README.md"
+keywords = ["wayland", "xdotool", "automation", "input", "libei"]
+categories = ["command-line-utilities", "os::linux-apis"]
+
+[[bin]]
+name = "wdotool"
+path = "src/main.rs"
+
+[dependencies]
+wdotool-core = { path = "../wdotool-core", version = "0.1.6" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
