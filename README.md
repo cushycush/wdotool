@@ -16,7 +16,7 @@ For comparison with the alternatives: **xdotool** is X11-only and does not work 
 
 ## Status
 
-Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backends need help from people running those desktops to verify — see [issue #1](https://github.com/cushycush/wdotool/issues/1) (KDE) and [issue #2](https://github.com/cushycush/wdotool/issues/2) (GNOME).
+Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backends need help from people running those desktops to verify. If you have Plasma 6 hardware (laptop, dual-boot, loaner), the smoke-test checklist at [`docs/verification/kde-plasma-6.md`](docs/verification/kde-plasma-6.md) takes about 30 to 45 minutes; filling it in closes [issue #1](https://github.com/cushycush/wdotool/issues/1). The same kind of doc for GNOME ([issue #2](https://github.com/cushycush/wdotool/issues/2)) will land alongside or after KDE verification finishes.
 
 | Feature                         | libei    | wlroots | kde       | gnome     | uinput   |
 | ------------------------------- | -------- | ------- | --------- | --------- | -------- |
