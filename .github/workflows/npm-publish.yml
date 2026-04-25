@@ -1,0 +1,48 @@
+name: npm publish (@wdotool/capabilities)
+
+# Manual-only. Publishing the npm package isn't tied to wdotool tags
+# because the schema_version=1 contract evolves slower than wdotool
+# releases. When you do want to publish, bump
+# packaging/npm/package.json's version, merge, then run this workflow
+# from the Actions tab.
+#
+# Setup once before the first run:
+#   1. Create the @wdotool org on npmjs.com.
+#   2. Generate an automation token with publish access.
+#   3. Add it as the repo secret NPM_TOKEN.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: packaging/npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: packaging/npm/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build + test (gate)
+        run: npm test
+
+      - name: Publish
+        # `prepublishOnly` re-runs build + test. --provenance attaches
+        # the build's GitHub Actions metadata so consumers can verify
+        # where the tarball came from.
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

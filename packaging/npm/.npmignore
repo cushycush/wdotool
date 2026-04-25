@@ -1,0 +1,8 @@
+# Source goes through tsc; only ship the compiled output.
+src/
+tests/
+scripts/
+tsconfig.json
+node_modules/
+*.tsbuildinfo
+.gitignore

@@ -1,0 +1,58 @@
+{
+  "name": "@wdotool/capabilities",
+  "version": "0.2.0",
+  "description": "TypeScript types and JSON Schema for wdotool's `wdotool capabilities` output. Lets JS/TS consumers (wflows.com, dashboards, etc.) parse a capabilities report with full type safety.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    },
+    "./schema.json": "./dist/schema.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "sync": "node scripts/sync-schema.mjs",
+    "build": "npm run sync && tsc && cp src/schema.json dist/schema.json",
+    "test": "npm run build && node --test tests/*.test.js",
+    "prepublishOnly": "npm run build && npm test",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "wdotool",
+    "wayland",
+    "capabilities",
+    "json-schema",
+    "types"
+  ],
+  "license": "MIT OR Apache-2.0",
+  "homepage": "https://github.com/cushycush/wdotool/tree/main/packaging/npm",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cushycush/wdotool.git",
+    "directory": "packaging/npm"
+  },
+  "bugs": {
+    "url": "https://github.com/cushycush/wdotool/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
