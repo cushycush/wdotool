@@ -22,6 +22,9 @@ pub mod error;
 pub mod keysym;
 pub mod types;
 
+#[cfg(feature = "libei")]
+pub(crate) mod portal_token;
+
 pub use backend::detector;
 pub use backend::{Backend, DynBackend};
 pub use error::{Result, WdoError};

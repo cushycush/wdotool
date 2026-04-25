@@ -18,6 +18,8 @@ libei = [
     "dep:enumflags2",
     "dep:futures-util",
     "dep:reis",
+    "dep:serde",
+    "dep:serde_json",
     "dep:xkbcommon",
 ]
 wlroots = [
@@ -57,3 +59,6 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = tru
 xkbcommon = { version = "0.9", features = ["wayland"], optional = true }
 xkeysym = { version = "0.2", optional = true }
 zbus = { version = "5", default-features = false, features = ["tokio"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
