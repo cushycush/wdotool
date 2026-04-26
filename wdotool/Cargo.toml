@@ -15,6 +15,17 @@ categories = ["command-line-utilities", "os::linux-apis"]
 name = "wdotool"
 path = "src/main.rs"
 
+[features]
+# Default-on so prebuilt distributions (cargo-dist tarball, AUR -bin,
+# .deb, .rpm, Flathub) ship `wdotool record`. Source builds via
+# `cargo install wdotool` also pick this up unless the user passes
+# `--no-default-features`.
+default = ["recorder"]
+# The binary uses `RecorderSession::stop()` (drain into Vec<RecEvent>)
+# rather than driving the live `events()` Stream, so it doesn't need
+# tokio-stream itself — `wdotool-core/recorder` carries that.
+recorder = ["wdotool-core/recorder"]
+
 [dependencies]
 wdotool-core = { path = "../wdotool-core", version = "0.4.0" }
 anyhow = "1"
@@ -22,7 +33,10 @@ clap = { version = "4", features = ["derive"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+# `signal` for Ctrl-C handling on `wdotool record`; `time` for the
+# `--max-duration` ceiling. Both are tiny — no reason to gate them
+# behind the recorder feature.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "signal", "time"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Debian / Ubuntu packaging metadata. Consumed by cargo-deb in the
