@@ -35,6 +35,10 @@ const IFACE_XML = `
       <arg type="s" direction="in" name="id"/>
       <arg type="b" direction="out" name="ok"/>
     </method>
+    <method name="GetPointerPosition">
+      <arg type="i" direction="out" name="x"/>
+      <arg type="i" direction="out" name="y"/>
+    </method>
   </interface>
 </node>`;
 
@@ -117,5 +121,14 @@ export default class WdotoolExtension extends Extension {
         if (!w) return false;
         w.delete(global.get_current_time());
         return true;
+    }
+
+    // Returns [x, y] in compositor coordinates. global.get_pointer()
+    // also returns a third element (modifier mask), which we drop —
+    // wdotool exposes pointer reads via its own modifier-aware API
+    // path, not as a side effect of pointer queries.
+    GetPointerPosition() {
+        const [x, y] = global.get_pointer();
+        return [x | 0, y | 0];
     }
 }

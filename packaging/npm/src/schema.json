@@ -99,7 +99,7 @@
     },
     "extras": {
       "type": "object",
-      "required": ["diag", "outputs", "record", "json_output"],
+      "required": ["diag", "outputs", "record", "json_output", "pointer_position"],
       "properties": {
         "diag": {
           "type": "boolean",
@@ -125,6 +125,10 @@
         "json_output": {
           "type": "boolean",
           "description": "Whether commands accept `--json` for structured output. v0.2.0: true (diag and capabilities support it)."
+        },
+        "pointer_position": {
+          "type": "boolean",
+          "description": "Whether `wdotool getmouselocation` can read the compositor's current pointer position on the selected backend. KDE (kwin script) and GNOME (Shell extension) emit `true`; libei, wlroots, and uinput emit `false` because the relevant Wayland protocols are send-only."
         }
       }
     },

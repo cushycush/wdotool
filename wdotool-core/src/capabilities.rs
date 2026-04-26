@@ -112,6 +112,7 @@ pub struct Extras {
     pub outputs: bool,
     pub record: RecordCaps,
     pub json_output: bool,
+    pub pointer_position: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +192,10 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
             // wdotool diag --json + wdotool capabilities both emit
             // structured output, so the flag is true.
             json_output: true,
+            // Tracks `wdotool getmouselocation`. Reflects the selected
+            // backend's `pointer_position` capability bit, so KDE +
+            // GNOME emit `true`, libei / wlroots / uinput emit `false`.
+            pointer_position: caps.pointer_position,
         },
         platform: PlatformInfo {
             desktop: env.desktop.clone(),
@@ -271,6 +276,7 @@ mod tests {
                 active_window: true,
                 activate_window: true,
                 close_window: true,
+                pointer_position: true,
             }
         }
         async fn key(&self, _: &str, _: KeyDirection) -> Result<()> {
@@ -331,6 +337,9 @@ mod tests {
         assert!(!r.extras.record.supported);
         assert!(r.extras.record.source.is_none());
         assert!(r.extras.json_output);
+        // FakeBackend in this test sets pointer_position=true, so the
+        // report should pass it through. Real libei would emit false.
+        assert!(r.extras.pointer_position);
         assert_eq!(r.platform.desktop.as_deref(), Some("GNOME"));
     }
 

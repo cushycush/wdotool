@@ -24,7 +24,7 @@ This page is the honest table. If you are porting a script and the command you w
 | `click` | ✅ | xdotool indices: 1=left, 2=middle, 3=right, 8=back, 9=forward |
 | `mousedown`, `mouseup` | ✅ |  |
 | `mousewheeldown`, `mousewheelup` | ✅ | Use `wdotool scroll dx dy` |
-| `getmouselocation` | ❌ | Pure send-side surface today; no read of pointer position. Open an issue if you need it |
+| `getmouselocation` | 🧪 | KDE (kwin script) and GNOME (Shell extension) both read the compositor's pointer position. libei / wlroots / uinput exit 1 with a clear message because the relevant Wayland protocols are send-only. Use your compositor's IPC there (`hyprctl cursorpos`, `swaymsg get_seats`) |
 
 ## Window actions
 
