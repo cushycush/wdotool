@@ -24,6 +24,8 @@ pub mod backend;
 pub mod capabilities;
 pub mod error;
 pub mod keysym;
+#[cfg(feature = "recorder")]
+pub mod recorder;
 pub mod types;
 
 #[cfg(feature = "libei")]

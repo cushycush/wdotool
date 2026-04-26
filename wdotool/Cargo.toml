@@ -16,7 +16,7 @@ name = "wdotool"
 path = "src/main.rs"
 
 [dependencies]
-wdotool-core = { path = "../wdotool-core", version = "0.3.0" }
+wdotool-core = { path = "../wdotool-core", version = "0.4.0" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 regex = "1"

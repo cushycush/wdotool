@@ -32,6 +32,19 @@ wlroots = [
 kde = ["libei", "dep:zbus"]
 gnome = ["libei", "dep:zbus"]
 uinput = ["dep:input-linux", "dep:libc", "dep:xkbcommon"]
+# Recording: capture user input as a stream of `RecEvent`s. Three
+# capture sources: the XDG RemoteDesktop portal (libei in receiver
+# mode), evdev (`/dev/input/event*` reads), and a deterministic
+# simulated source for tests. Pulls in heavier deps (evdev, full
+# tokio mpsc + signal handling) so it's gated; consumers who only
+# want send-side input don't pay.
+recorder = [
+    "dep:ashpd",
+    "dep:evdev",
+    "dep:futures-util",
+    "dep:reis",
+    "dep:tokio-stream",
+]
 
 [dependencies]
 # Always-on. serde + serde_json are always-on because the public
@@ -47,11 +60,13 @@ tracing = "0.1"
 # Optional, gated by feature flags above
 ashpd = { version = "0.13", features = ["tokio", "remote_desktop", "screencast"], optional = true }
 enumflags2 = { version = "0.7", optional = true }
+evdev = { version = "0.13", features = ["tokio", "stream-trait"], optional = true }
 futures-util = { version = "0.3", optional = true }
 input-linux = { version = "0.7", optional = true }
 libc = { version = "0.2", optional = true }
 reis = { version = "0.6", features = ["tokio"], optional = true }
 rustix = { version = "1", features = ["fs"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
 wayland-client = { version = "0.31", optional = true }
 wayland-protocols = { version = "0.32", features = ["client", "unstable"], optional = true }
 wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
