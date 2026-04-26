@@ -166,6 +166,13 @@ pub enum Command {
     /// the window has no app_id set.
     Getwindowclassname { id: String },
 
+    /// Print the frame position and size of a window by id. Output
+    /// matches xdotool's default format ("Window <id>" header,
+    /// position, geometry). Exits 1 if the id doesn't exist or the
+    /// active backend can't read window geometry (libei / wlroots /
+    /// uinput); KDE and GNOME both can.
+    Getwindowgeometry { id: String },
+
     /// Show detected environment and backend capabilities.
     Info,
 

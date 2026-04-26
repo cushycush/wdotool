@@ -113,6 +113,7 @@ pub struct Extras {
     pub record: RecordCaps,
     pub json_output: bool,
     pub pointer_position: bool,
+    pub window_geometry: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +202,13 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
             // backend's `pointer_position` capability bit, so KDE +
             // GNOME emit `true`, libei / wlroots / uinput emit `false`.
             pointer_position: caps.pointer_position,
+            // Tracks `wdotool getwindowgeometry`. KDE (kwin script
+            // reading window.frameGeometry) and GNOME (Shell extension
+            // calling MetaWindow.get_frame_rect) emit `true`. wlroots
+            // emits `false` because foreign-toplevel doesn't expose
+            // geometry; libei and uinput have no window concept at
+            // all.
+            window_geometry: caps.window_geometry,
         },
         platform: PlatformInfo {
             desktop: env.desktop.clone(),
@@ -283,6 +291,7 @@ mod tests {
                 close_window: true,
                 pointer_position: true,
                 list_outputs: true,
+                window_geometry: true,
             }
         }
         async fn key(&self, _: &str, _: KeyDirection) -> Result<()> {
@@ -349,6 +358,9 @@ mod tests {
         // FakeBackend in this test sets pointer_position=true, so the
         // report should pass it through. Real libei would emit false.
         assert!(r.extras.pointer_position);
+        // Same for window_geometry. KDE and GNOME emit true; libei,
+        // wlroots, and uinput emit false.
+        assert!(r.extras.window_geometry);
         assert_eq!(r.platform.desktop.as_deref(), Some("GNOME"));
     }
 

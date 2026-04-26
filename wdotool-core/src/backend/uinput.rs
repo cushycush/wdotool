@@ -268,6 +268,7 @@ impl Backend for UinputBackend {
             close_window: false,
             pointer_position: false,
             list_outputs: false,
+            window_geometry: false,
         }
     }
 

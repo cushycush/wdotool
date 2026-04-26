@@ -39,6 +39,14 @@ const IFACE_XML = `
       <arg type="i" direction="out" name="x"/>
       <arg type="i" direction="out" name="y"/>
     </method>
+    <method name="GetWindowGeometry">
+      <arg type="s" direction="in" name="id"/>
+      <arg type="b" direction="out" name="found"/>
+      <arg type="i" direction="out" name="x"/>
+      <arg type="i" direction="out" name="y"/>
+      <arg type="i" direction="out" name="width"/>
+      <arg type="i" direction="out" name="height"/>
+    </method>
   </interface>
 </node>`;
 
@@ -130,5 +138,16 @@ export default class WdotoolExtension extends Extension {
     GetPointerPosition() {
         const [x, y] = global.get_pointer();
         return [x | 0, y | 0];
+    }
+
+    // Returns [found, x, y, width, height]. found=false means no
+    // window matched the requested id; the wdotool side maps that to
+    // WindowNotFound. MetaWindow.get_frame_rect() is the canonical
+    // outer rect including any server-side decorations.
+    GetWindowGeometry(id) {
+        const w = findById(id);
+        if (!w) return [false, 0, 0, 0, 0];
+        const r = w.get_frame_rect();
+        return [true, r.x | 0, r.y | 0, r.width | 0, r.height | 0];
     }
 }

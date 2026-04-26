@@ -17,6 +17,11 @@ pub struct Capabilities {
     /// not yet (each compositor has a different way to enumerate
     /// monitors). uinput: never (kernel layer, no notion of screens).
     pub list_outputs: bool,
+    /// True when the backend can read a window's frame position and
+    /// size for `wdotool getwindowgeometry`. KDE (kwin script) and
+    /// GNOME (Shell extension) can; wlroots' foreign-toplevel doesn't
+    /// expose geometry, libei and uinput have no window concept.
+    pub window_geometry: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,4 +94,18 @@ pub struct OutputInfo {
     /// reported by compositors as the next integer up; the per-output
     /// fractional value is not exposed to wl_output clients.
     pub scale: i32,
+}
+
+/// Position and size of a window's frame in compositor coordinates,
+/// matching xdotool's `getwindowgeometry` semantics. Backends that
+/// can't read window geometry (wlroots' foreign-toplevel doesn't
+/// expose it; libei and uinput have no window concept) return `None`
+/// instead of populating this. KDE reads it via a transient kwin
+/// script; GNOME via the companion Shell extension.
+#[derive(Clone, Debug)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
