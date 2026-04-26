@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `wdotool record [--output FILE] [--max-duration SEC] [--backend portal|evdev|simulated|auto]` captures user input until Ctrl-C (or the duration elapses) and writes the events as JSON. Built on the `wdotool_core::recorder` module that shipped in v0.4.0; behind the same `recorder` Cargo feature (default-on for the released binary). Default output is stdout; pass `-o trace.json` for a file. The `auto` backend cascades portal → evdev. Capabilities schema's `extras.record.supported` flips to `true` when the binary was built with the recorder feature; `source` stays `null` because the runtime cascade decides between portal and evdev when the recording starts. The new replay command (consuming a captured trace and dispatching through the existing `Backend` trait) is a separate follow-up.
+
 ## [0.4.0] — 2026-04-26
 
 ### Added

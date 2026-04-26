@@ -191,8 +191,15 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
             // outputs from its own source (kwin script / Shell
             // extension / libei region / not-applicable).
             outputs: caps.list_outputs,
+            // The `recorder` Cargo feature is what gates the
+            // `wdotool_core::recorder` module. When it's compiled in,
+            // recording is available regardless of which sender
+            // backend is selected. `source` stays None at the
+            // capabilities layer because the runtime cascade
+            // (portal → evdev) resolves which capture source actually
+            // runs once `recorder::start` is called.
             record: RecordCaps {
-                supported: false,
+                supported: cfg!(feature = "recorder"),
                 source: None,
             },
             // wdotool diag --json + wdotool capabilities both emit
@@ -352,7 +359,12 @@ mod tests {
         // extras.outputs to true. A real libei backend would emit
         // false here (libei has device regions but no name mapping).
         assert!(r.extras.outputs);
-        assert!(!r.extras.record.supported);
+        // Record support tracks the `recorder` Cargo feature, not
+        // any per-backend bit. With the feature on (default), this
+        // is true; without it, false. Either way `source` is None at
+        // the capabilities layer because the runtime cascade decides
+        // which capture path runs.
+        assert_eq!(r.extras.record.supported, cfg!(feature = "recorder"));
         assert!(r.extras.record.source.is_none());
         assert!(r.extras.json_output);
         // FakeBackend in this test sets pointer_position=true, so the

@@ -1,5 +1,7 @@
 mod cli;
 mod diag;
+#[cfg(feature = "recorder")]
+mod record;
 
 use std::time::Duration;
 
@@ -31,6 +33,20 @@ async fn main() -> anyhow::Result<()> {
             diag::DiagFormat::Markdown
         };
         return diag::run(format, copy);
+    }
+
+    // Record short-circuits before detector::build for the same
+    // reason Diag does: the recorder owns its own portal session
+    // (libei in receiver mode) and doesn't need a sender Backend
+    // to bootstrap.
+    #[cfg(feature = "recorder")]
+    if let Command::Record {
+        output,
+        max_duration,
+        backend,
+    } = cli.command
+    {
+        return record::run(output, max_duration, backend).await;
     }
 
     let env = Environment::detect();
@@ -317,6 +333,12 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
             // Handled in main() before dispatch is called so diag never
             // bootstraps a backend.
             unreachable!("Diag short-circuits before dispatch");
+        }
+        #[cfg(feature = "recorder")]
+        Command::Record { .. } => {
+            // Same as Diag: handled in main() before dispatch so the
+            // recorder owns its own portal session.
+            unreachable!("Record short-circuits before dispatch");
         }
     }
     Ok(())

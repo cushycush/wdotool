@@ -37,7 +37,7 @@ const validReport = {
   extras: {
     diag: true,
     outputs: false,
-    record: { supported: false, source: null },
+    record: { supported: true, source: null },
     json_output: true,
     pointer_position: false,
     window_geometry: false,
