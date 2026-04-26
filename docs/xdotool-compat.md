@@ -43,7 +43,7 @@ This page is the honest table. If you are porting a script and the command you w
 
 | xdotool command | wdotool | notes |
 | --- | --- | --- |
-| `search` | ✅ | `--name` (title), `--class` (Wayland app_id), `--pid`. Substring matching by default; pass `--regex` for full regex semantics, `--ignore-case` for case-insensitive. Exits 1 if no matches (matches xdotool's behavior). xdotool's `--role`, `--classname`, `--screen`, `--desktop`, `--all`, `--any` aren't implemented |
+| `search` | ✅ | `--name` (title), `--class` (Wayland app_id), `--pid`. Substring matching by default; pass `--regex` for full regex semantics, `--ignore-case` for case-insensitive. Filters AND together by default, or pass `--any` for OR semantics; `--all` is accepted as a no-op for xdotool argv compat. Exits 1 if no matches (matches xdotool's behavior). xdotool's `--role`, `--classname`, `--screen`, `--desktop` aren't implemented |
 | `getactivewindow` | ✅ | Returns the focused window's id |
 | `getwindowfocus` | ✅ | Same as `getactivewindow` on Wayland (Wayland does not expose pointer-focus separately from keyboard-focus to clients) |
 | `getwindowname` | ✅ | Prints the title of a window by id. Pair with `wdotool search` to get an id |
