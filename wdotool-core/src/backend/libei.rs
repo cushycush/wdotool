@@ -538,6 +538,7 @@ impl Backend for LibeiBackend {
             activate_window: false,
             close_window: false,
             pointer_position: false,
+            list_outputs: false,
         }
     }
 

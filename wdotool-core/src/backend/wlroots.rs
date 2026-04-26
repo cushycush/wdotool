@@ -20,6 +20,10 @@ use wayland_client::protocol::{wl_output, wl_registry, wl_seat};
 use wayland_client::{
     delegate_noop, event_created_child, Connection, Dispatch, EventQueue, Proxy, QueueHandle,
 };
+use wayland_protocols::xdg::xdg_output::zv1::client::{
+    zxdg_output_manager_v1::{self, ZxdgOutputManagerV1},
+    zxdg_output_v1::{self, ZxdgOutputV1},
+};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
     zwp_virtual_keyboard_manager_v1 as vk_mgr, zwp_virtual_keyboard_v1 as vk,
 };
@@ -33,7 +37,7 @@ use xkbcommon::xkb;
 
 use super::Backend;
 use crate::error::{Result, WdoError};
-use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
+use crate::types::{Capabilities, KeyDirection, MouseButton, OutputInfo, WindowId, WindowInfo};
 
 const NAME: &str = "wlroots";
 
@@ -151,6 +155,9 @@ enum Command {
         id: String,
         reply: oneshot::Sender<Result<()>>,
     },
+    ListOutputs {
+        reply: oneshot::Sender<Result<Vec<OutputInfo>>>,
+    },
     Shutdown,
 }
 
@@ -170,6 +177,7 @@ struct GlobalsScratch {
     vk_mgr: Option<vk_mgr::ZwpVirtualKeyboardManagerV1>,
     vp_mgr: Option<vp_mgr::ZwlrVirtualPointerManagerV1>,
     ft_mgr: Option<ft_mgr::ZwlrForeignToplevelManagerV1>,
+    xdg_output_mgr: Option<ZxdgOutputManagerV1>,
 }
 
 struct State {
@@ -182,7 +190,7 @@ struct State {
     // extent to make coords meaningful; we use the first output with a
     // known current mode. Multi-output setups pick whichever output came
     // back first — documented as a known limitation.
-    outputs: HashMap<ObjectId, OutputInfo>,
+    outputs: HashMap<ObjectId, WlOutputState>,
 }
 
 #[derive(Default)]
@@ -192,10 +200,43 @@ struct PendingToplevel {
     activated: bool,
 }
 
-#[derive(Default, Clone, Copy)]
-struct OutputInfo {
+/// Per-`wl_output` state accumulated as the compositor sends events.
+/// Default values fill in lazily as `Geometry`, `Mode`, `Scale`,
+/// `Name`, and the `xdg_output` companion's `LogicalPosition` /
+/// `LogicalSize` arrive. We store both wl_output's mode dimensions
+/// (raw pixels at the current refresh rate) and xdg_output's logical
+/// dimensions (post-scale, what apps and the cursor coordinate space
+/// see). Modern compositors (Sway, Hyprland, KWin) report wl_output's
+/// `Geometry x/y` as `(0, 0)` and put real positions on xdg_output's
+/// `LogicalPosition`. So `logical_x` / `logical_y` are the
+/// authoritative origins for `mousemove --output`.
+#[derive(Default, Clone)]
+struct WlOutputState {
+    /// The wl_output proxy itself, kept so we can attach an xdg_output
+    /// in a post-roundtrip fixup pass if the xdg_output_manager arrived
+    /// after wl_output on the registry. None only as the transient
+    /// default before the registry handler populates it.
+    proxy: Option<wl_output::WlOutput>,
+    /// True once we've called `xdg_output_manager.get_xdg_output()`
+    /// for this output, to avoid double-attaching in the fixup pass.
+    xdg_attached: bool,
+    name: Option<String>,
+    /// Position from wl_output.geometry. Useful only on legacy
+    /// compositors that don't expose xdg_output.
+    geom_x: i32,
+    geom_y: i32,
+    /// Position from zxdg_output_v1.logical_position. Authoritative
+    /// when present (modern compositors put real positions here and
+    /// leave wl_output.geometry at 0,0).
+    logical_x: Option<i32>,
+    logical_y: Option<i32>,
+    /// Mode dimensions (raw pixels).
     width: u32,
     height: u32,
+    /// Logical dimensions from zxdg_output_v1.logical_size (post-scale).
+    logical_width: Option<u32>,
+    logical_height: Option<u32>,
+    scale: i32,
 }
 
 impl State {
@@ -239,6 +280,26 @@ fn worker_main(
     if let Err(err) = queue.roundtrip(&mut state) {
         let _ = ready_tx.send(Err(format!("initial registry roundtrip: {err}")));
         return;
+    }
+
+    // xdg_output fixup. If the xdg_output_manager arrived after one or
+    // more wl_outputs on the registry, those outputs don't have an
+    // xdg_output attached yet. Attach them now and roundtrip again to
+    // collect the LogicalPosition / LogicalSize events.
+    if let Some(mgr) = state.scratch.xdg_output_mgr.clone() {
+        let pending: Vec<(ObjectId, wl_output::WlOutput)> = state
+            .outputs
+            .iter()
+            .filter(|(_, s)| !s.xdg_attached && s.proxy.is_some())
+            .map(|(id, s)| (id.clone(), s.proxy.clone().unwrap()))
+            .collect();
+        for (id, output) in pending {
+            let _ = mgr.get_xdg_output(&output, &qh, id.clone());
+            if let Some(entry) = state.outputs.get_mut(&id) {
+                entry.xdg_attached = true;
+            }
+        }
+        let _ = queue.roundtrip(&mut state);
     }
 
     // Per-seat objects: create virtual keyboard + pointer if managers exist.
@@ -296,6 +357,7 @@ fn worker_main(
         activate_window: state.scratch.ft_mgr.is_some() && seat.is_some(),
         close_window: state.scratch.ft_mgr.is_some(),
         pointer_position: false,
+        list_outputs: true,
     };
     if ready_tx.send(Ok(caps)).is_err() {
         return;
@@ -388,6 +450,49 @@ fn worker_main(
                     None => Err(WdoError::WindowNotFound(id)),
                 };
                 let _ = reply.send(res);
+            }
+            Command::ListOutputs { reply } => {
+                // A second roundtrip catches outputs whose initial event
+                // burst hadn't arrived by the time the worker first
+                // populated state.outputs. Cheap; outputs change rarely.
+                let _ = queue.roundtrip(&mut state);
+                let outs: Vec<OutputInfo> = state
+                    .outputs
+                    .values()
+                    .filter_map(|o| {
+                        // Skip outputs that haven't sent their name yet
+                        // (wl_output v3 compositors will never send it,
+                        // but wdotool already binds v4 — anyone running
+                        // a real session has names).
+                        let name = o.name.clone()?;
+                        // Prefer xdg_output's logical position when
+                        // present; fall back to wl_output.geometry for
+                        // legacy compositors. xdg_output wins on
+                        // Sway/Hyprland/KWin where wl_output.geometry
+                        // is (0, 0) and the real position lives on
+                        // logical_position.
+                        let x = o.logical_x.unwrap_or(o.geom_x);
+                        let y = o.logical_y.unwrap_or(o.geom_y);
+                        // Mode width/height are raw pixels. Logical
+                        // dimensions (post-scale) are what the cursor
+                        // coordinate space sees, so prefer those when
+                        // available.
+                        let width = o.logical_width.unwrap_or(o.width);
+                        let height = o.logical_height.unwrap_or(o.height);
+                        Some(OutputInfo {
+                            name,
+                            x,
+                            y,
+                            width,
+                            height,
+                            // Default scale to 1 if the compositor never
+                            // sent a Scale event (legacy), so consumers
+                            // never see a 0-scale output.
+                            scale: if o.scale > 0 { o.scale } else { 1 },
+                        })
+                    })
+                    .collect();
+                let _ = reply.send(Ok(outs));
             }
         }
     }
@@ -885,7 +990,28 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
                 "wl_output" => {
                     let output =
                         registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, ());
-                    state.outputs.insert(output.id(), OutputInfo::default());
+                    let output_id = output.id();
+                    let mut entry = WlOutputState {
+                        proxy: Some(output.clone()),
+                        ..Default::default()
+                    };
+                    // If the xdg_output_manager has already been bound,
+                    // attach an xdg_output now. If not (xdg_output_mgr
+                    // arrives after wl_output in the registry burst),
+                    // the post-registry fixup in worker_main attaches
+                    // it.
+                    if let Some(mgr) = state.scratch.xdg_output_mgr.clone() {
+                        let _ = mgr.get_xdg_output(&output, qh, output_id.clone());
+                        entry.xdg_attached = true;
+                    }
+                    state.outputs.insert(output_id, entry);
+                }
+                "zxdg_output_manager_v1" => {
+                    // xdg_output_unstable_v1 is at version 3 today. Cap
+                    // at 3 so we always get logical_position/logical_size.
+                    let m =
+                        registry.bind::<ZxdgOutputManagerV1, _, _>(name, version.min(3), qh, ());
+                    state.scratch.xdg_output_mgr = Some(m);
                 }
                 "zwp_virtual_keyboard_manager_v1" => {
                     let m = registry.bind::<vk_mgr::ZwpVirtualKeyboardManagerV1, _, _>(
@@ -942,23 +1068,91 @@ impl Dispatch<wl_output::WlOutput, ()> for State {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        // Only the current mode is meaningful — discard non-current ones so
-        // motion_absolute uses the resolution the output is actually rendering.
-        if let wl_output::Event::Mode {
-            flags,
-            width,
-            height,
-            ..
-        } = event
-        {
-            let is_current = flags
-                .into_result()
-                .map(|f| f.contains(wl_output::Mode::Current))
-                .unwrap_or(false);
-            if is_current {
-                state.outputs.entry(output.id()).or_default().width = width.max(0) as u32;
-                state.outputs.entry(output.id()).or_default().height = height.max(0) as u32;
+        let entry = state.outputs.entry(output.id()).or_default();
+        match event {
+            // wl_output.geometry's x/y is supposed to describe the
+            // output's position in the global compositor space, but
+            // modern compositors (Sway, Hyprland, KWin) report (0, 0)
+            // here and put real positions on xdg_output's
+            // logical_position. We keep these as a legacy fallback for
+            // compositors that don't expose xdg_output.
+            wl_output::Event::Geometry { x, y, .. } => {
+                entry.geom_x = x;
+                entry.geom_y = y;
             }
+            // Only the current mode is meaningful — discard non-current ones
+            // so motion_absolute uses the resolution the output actually
+            // renders at.
+            wl_output::Event::Mode {
+                flags,
+                width,
+                height,
+                ..
+            } => {
+                let is_current = flags
+                    .into_result()
+                    .map(|f| f.contains(wl_output::Mode::Current))
+                    .unwrap_or(false);
+                if is_current {
+                    entry.width = width.max(0) as u32;
+                    entry.height = height.max(0) as u32;
+                }
+            }
+            wl_output::Event::Scale { factor } => {
+                entry.scale = factor;
+            }
+            // wl_output v4: human-readable name (DP-1, HDMI-A-1, etc.).
+            // wdotool's `--output` flag matches against this string.
+            wl_output::Event::Name { name } => {
+                entry.name = Some(name);
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZxdgOutputManagerV1, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &ZxdgOutputManagerV1,
+        _: zxdg_output_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // The manager defines no events.
+    }
+}
+
+/// `userdata` is the `ObjectId` of the wl_output this xdg_output
+/// describes. We carry it through so the dispatch handler knows which
+/// `state.outputs` entry to update without maintaining a parallel
+/// xdg_output_id → wl_output_id map.
+impl Dispatch<ZxdgOutputV1, ObjectId> for State {
+    fn event(
+        state: &mut Self,
+        _: &ZxdgOutputV1,
+        event: zxdg_output_v1::Event,
+        wl_output_id: &ObjectId,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let Some(entry) = state.outputs.get_mut(wl_output_id) else {
+            return;
+        };
+        match event {
+            zxdg_output_v1::Event::LogicalPosition { x, y } => {
+                entry.logical_x = Some(x);
+                entry.logical_y = Some(y);
+            }
+            zxdg_output_v1::Event::LogicalSize { width, height } => {
+                entry.logical_width = Some(width.max(0) as u32);
+                entry.logical_height = Some(height.max(0) as u32);
+            }
+            // Name and Description on xdg_output are deprecated in
+            // favor of wl_output's own events; we ignore them and rely
+            // on wl_output for the canonical name.
+            _ => {}
         }
     }
 }
@@ -1182,5 +1376,9 @@ impl Backend for WlrootsBackend {
     async fn close_window(&self, id: &WindowId) -> Result<()> {
         let id = id.0.clone();
         self.send(|reply| Command::CloseWindow { id, reply }).await
+    }
+
+    async fn list_outputs(&self) -> Result<Vec<OutputInfo>> {
+        self.send(|reply| Command::ListOutputs { reply }).await
     }
 }

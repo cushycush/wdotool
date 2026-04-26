@@ -3,7 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::error::Result;
-use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
+use crate::types::{Capabilities, KeyDirection, MouseButton, OutputInfo, WindowId, WindowInfo};
 
 pub mod detector;
 
@@ -43,6 +43,16 @@ pub trait Backend: Send + Sync {
     /// transient kwin script, GNOME via the companion Shell extension.
     async fn pointer_position(&self) -> Result<Option<(i32, i32)>> {
         Ok(None)
+    }
+
+    /// Enumerate the compositor's outputs (monitors). Returns an empty
+    /// vector for backends that don't enumerate outputs; the wlroots
+    /// backend is the first to populate it (via `wl_output`). KDE and
+    /// GNOME each have their own enumeration path that hasn't been
+    /// wired up yet; libei has device regions but no name mapping;
+    /// uinput is at the kernel layer with no notion of monitors.
+    async fn list_outputs(&self) -> Result<Vec<OutputInfo>> {
+        Ok(Vec::new())
     }
 }
 

@@ -107,7 +107,7 @@
         },
         "outputs": {
           "type": "boolean",
-          "description": "`wdotool outputs --json` is available + `mousemove --output` works. v0.2.0 always false; planned for v0.4.0+."
+          "description": "`wdotool outputs` and `mousemove --output <name>` work on the selected backend. wlroots emits `true` (uses `wl_output`); KDE, GNOME, libei, and uinput emit `false` until each backend wires up its own enumeration path. Independent of `wdotool outputs --json`, which is always available — this flag specifically tracks whether the result will be non-empty."
         },
         "record": {
           "type": "object",
