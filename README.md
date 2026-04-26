@@ -16,7 +16,7 @@ For comparison with the alternatives: **xdotool** is X11-only and does not work 
 
 ## Status
 
-Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backends need help from people running those desktops to verify. If you have Plasma 6 hardware (laptop, dual-boot, loaner), the smoke-test checklist at [`docs/verification/kde-plasma-6.md`](docs/verification/kde-plasma-6.md) takes about 30 to 45 minutes; filling it in closes [issue #1](https://github.com/cushycush/wdotool/issues/1). The same kind of doc for GNOME ([issue #2](https://github.com/cushycush/wdotool/issues/2)) will land alongside or after KDE verification finishes.
+Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backends are both experimental: code paths compile and unit tests pass, but neither has been smoke-tested end-to-end on real hardware of the target desktop yet. If you run Plasma 6, [issue #1](https://github.com/cushycush/wdotool/issues/1) tracks verification — `docs/verification/kde-plasma-6.md` is a 30–45 minute checklist that closes it. Same shape for GNOME at [issue #4](https://github.com/cushycush/wdotool/issues/4).
 
 | Feature                         | libei    | wlroots | kde       | gnome     | uinput   |
 | ------------------------------- | -------- | ------- | --------- | --------- | -------- |
@@ -26,16 +26,17 @@ Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backe
 | `mousemove` (absolute)          | ✅       | ✅      | ✅        | ✅        | ✅       |
 | `click` / `mousedown` / `mouseup` | ✅     | ✅      | ✅        | ✅        | ✅       |
 | `scroll`                        | ✅       | ✅      | ✅        | ✅        | ✅       |
-| `search` / `getactivewindow`    | —        | ✅      | ✅³       | 🧪⁴       | —        |
-| `windowactivate` / `windowclose` | —       | ✅      | ✅³       | 🧪⁴       | —        |
+| `search` / `getactivewindow`    | —        | ✅      | 🧪³       | 🧪⁴       | —        |
+| `windowactivate` / `windowclose` | —       | ✅      | 🧪³       | 🧪⁴       | —        |
+| `getmouselocation`              | —        | —       | 🧪³       | 🧪⁴       | —        |
 
 ¹ libei (and `kde` / `gnome`, which use libei for input) is a sender context; the EIS server owns the keymap. Characters not in the active layout are skipped with a warning.
 
 ² uinput has the same limitation as libei — the kernel doesn't know about keymaps. Best-effort via the env-default xkb layout.
 
-³ Implemented but unverified on a real Plasma session ([issue #1](https://github.com/cushycush/wdotool/issues/1)).
+³ Implemented but unverified on a real Plasma session. The KDE backend uses kwin scripting over D-Bus the same way `kdotool` does; same machinery for `getmouselocation` reads `workspace.cursorPos`. [Issue #1](https://github.com/cushycush/wdotool/issues/1) tracks verification.
 
-⁴ Requires the companion GNOME Shell extension at `packaging/gnome-extension/wdotool@wdotool.github.io/`. Shipped in v0.1.6 but not yet smoke-tested on a real GNOME session; if you run GNOME, please try it and file [issue #2](https://github.com/cushycush/wdotool/issues/2) if anything breaks. Without the extension, `gnome` falls back to bare libei (input only).
+⁴ Requires the companion GNOME Shell extension at `packaging/gnome-extension/wdotool@wdotool.github.io/`. Shipped in v0.1.6 (window ops) and extended in v0.3.x (`GetPointerPosition`); not yet smoke-tested on a real GNOME session. [Issue #4](https://github.com/cushycush/wdotool/issues/4) tracks verification. Without the extension, `gnome` falls back to bare libei (input only).
 
 ## Install
 
