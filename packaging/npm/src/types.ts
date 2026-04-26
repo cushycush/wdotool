@@ -67,6 +67,7 @@ export interface ExtrasCapabilities {
   outputs: boolean;
   record: RecordCapability;
   json_output: boolean;
+  pointer_position: boolean;
 }
 
 export interface PlatformInfo {

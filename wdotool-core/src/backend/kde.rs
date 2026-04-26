@@ -41,6 +41,7 @@ struct PendingState {
     list_waiters: HashMap<u64, oneshot::Sender<String>>,
     active_waiters: HashMap<u64, oneshot::Sender<String>>,
     action_waiters: HashMap<u64, oneshot::Sender<bool>>,
+    pointer_waiters: HashMap<u64, oneshot::Sender<Option<(i32, i32)>>>,
 }
 
 /// D-Bus interface our KWin scripts call back into. Names are PascalCase on
@@ -70,6 +71,19 @@ impl Bridge {
         let sender = self.pending.lock().await.action_waiters.remove(&req_id);
         if let Some(tx) = sender {
             let _ = tx.send(ok);
+        }
+    }
+
+    /// Pointer-position result. `ok=false` means the script couldn't
+    /// read `workspace.cursorPos` (very old KWin? unusual session?); the
+    /// x/y values are then placeholders and the caller turns it into
+    /// `Ok(None)`. xdotool's getmouselocation only ever returns
+    /// coordinates, so this two-stage shape exists purely for safety
+    /// against the rare "cursor not on any screen" case.
+    async fn report_pointer(&self, req_id: u64, ok: bool, x: i32, y: i32) {
+        let sender = self.pending.lock().await.pointer_waiters.remove(&req_id);
+        if let Some(tx) = sender {
+            let _ = tx.send(if ok { Some((x, y)) } else { None });
         }
     }
 }
@@ -230,6 +244,27 @@ impl KdeBackend {
         Ok(Some(parsed.into()))
     }
 
+    async fn pointer_position_impl(&self) -> Result<Option<(i32, i32)>> {
+        let req_id = self.next_request_id();
+        let (tx, rx) = oneshot::channel::<Option<(i32, i32)>>();
+        self.pending.lock().await.pointer_waiters.insert(req_id, tx);
+
+        let script = pointer_position_script(req_id);
+        self.run_kwin_script(&script).await?;
+
+        let result = tokio::time::timeout(Duration::from_secs(3), rx)
+            .await
+            .map_err(|_| WdoError::Backend {
+                backend: NAME,
+                source: "timed out waiting for KWin pointer callback".into(),
+            })?
+            .map_err(|_| WdoError::Backend {
+                backend: NAME,
+                source: "KWin pointer script aborted before callback".into(),
+            })?;
+        Ok(result)
+    }
+
     /// Register a oneshot waiter, ask the caller to build the matching script
     /// (so the request id embedded in the JS lines up with the waiter key),
     /// run it, and return the script's boolean result. Callers map `false`
@@ -313,6 +348,28 @@ fn active_window_script(req_id: u64) -> String {
   callDBus(
     "{service}", "{path}", "{iface}", "ReportActive",
     {id}, payload
+  );
+}})();
+"#,
+        service = BRIDGE_SERVICE,
+        path = BRIDGE_PATH,
+        iface = BRIDGE_IFACE,
+        id = req_id
+    )
+}
+
+fn pointer_position_script(req_id: u64) -> String {
+    // workspace.cursorPos returns a QPoint with .x and .y in compositor
+    // coordinates. Coerce to plain numbers so `callDBus` sends them as
+    // i32, matching the Bridge::report_pointer signature.
+    format!(
+        r#"
+(function() {{
+  var p = workspace.cursorPos;
+  var ok = (p && typeof p.x === "number" && typeof p.y === "number");
+  callDBus(
+    "{service}", "{path}", "{iface}", "ReportPointer",
+    {id}, ok, ok ? (p.x | 0) : 0, ok ? (p.y | 0) : 0
   );
 }})();
 "#,
@@ -412,6 +469,7 @@ impl Backend for KdeBackend {
         caps.active_window = true;
         caps.activate_window = true;
         caps.close_window = true;
+        caps.pointer_position = true;
         caps
     }
 
@@ -433,6 +491,10 @@ impl Backend for KdeBackend {
 
     async fn scroll(&self, dx: f64, dy: f64) -> Result<()> {
         self.libei.scroll(dx, dy).await
+    }
+
+    async fn pointer_position(&self) -> Result<Option<(i32, i32)>> {
+        self.pointer_position_impl().await
     }
 
     async fn list_windows(&self) -> Result<Vec<WindowInfo>> {

@@ -125,6 +125,11 @@ pub enum Command {
     /// Print the active window's id.
     Getactivewindow,
 
+    /// Print the current pointer position as `x:N y:N` (xdotool's
+    /// default format). Exits 1 on backends that can't read pointer
+    /// position (libei, wlroots, uinput); KDE and GNOME both can.
+    Getmouselocation,
+
     /// Activate (raise + focus) a window by id.
     Windowactivate { id: String },
 

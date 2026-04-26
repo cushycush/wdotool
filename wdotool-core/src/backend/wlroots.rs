@@ -295,6 +295,7 @@ fn worker_main(
         active_window: state.scratch.ft_mgr.is_some(),
         activate_window: state.scratch.ft_mgr.is_some() && seat.is_some(),
         close_window: state.scratch.ft_mgr.is_some(),
+        pointer_position: false,
     };
     if ready_tx.send(Ok(caps)).is_err() {
         return;

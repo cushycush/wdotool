@@ -38,6 +38,8 @@ trait Bridge {
     fn activate_window(&self, id: &str) -> zbus::Result<bool>;
     #[zbus(name = "CloseWindow")]
     fn close_window(&self, id: &str) -> zbus::Result<bool>;
+    #[zbus(name = "GetPointerPosition")]
+    fn get_pointer_position(&self) -> zbus::Result<(i32, i32)>;
 }
 
 pub struct GnomeExtBackend {
@@ -137,6 +139,7 @@ impl Backend for GnomeExtBackend {
         caps.active_window = true;
         caps.activate_window = true;
         caps.close_window = true;
+        caps.pointer_position = true;
         caps
     }
 
@@ -196,5 +199,10 @@ impl Backend for GnomeExtBackend {
             return Err(WdoError::WindowNotFound(id.0.clone()));
         }
         Ok(())
+    }
+
+    async fn pointer_position(&self) -> Result<Option<(i32, i32)>> {
+        let (x, y) = self.proxy.get_pointer_position().await.map_err(dbus_err)?;
+        Ok(Some((x, y)))
     }
 }

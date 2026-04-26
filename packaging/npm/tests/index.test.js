@@ -39,6 +39,7 @@ const validReport = {
     outputs: false,
     record: { supported: false, source: null },
     json_output: true,
+    pointer_position: false,
   },
   platform: {
     desktop: "Hyprland",

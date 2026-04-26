@@ -77,6 +77,7 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
             println!("  active_window:         {}", caps.active_window);
             println!("  activate_window:       {}", caps.activate_window);
             println!("  close_window:          {}", caps.close_window);
+            println!("  pointer_position:      {}", caps.pointer_position);
         }
         Command::Key {
             clearmodifiers,
@@ -172,6 +173,18 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
         Command::Getactivewindow => match backend.active_window().await? {
             Some(w) => println!("{}", w.id),
             None => return Err(WdoError::WindowNotFound("active".into())),
+        },
+        Command::Getmouselocation => match backend.pointer_position().await? {
+            Some((x, y)) => println!("x:{x} y:{y}"),
+            None => {
+                eprintln!(
+                    "wdotool: pointer position is unreadable on the {} backend (Wayland \
+                     virtual-pointer protocols are send-only). Use the kde or gnome backend, \
+                     or your compositor's IPC (hyprctl cursorpos, swaymsg get_seats).",
+                    backend.name()
+                );
+                std::process::exit(1);
+            }
         },
         Command::Windowactivate { id } => backend.activate_window(&WindowId(id)).await?,
         Command::Windowclose { id } => backend.close_window(&WindowId(id)).await?,

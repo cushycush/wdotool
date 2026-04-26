@@ -10,6 +10,7 @@ pub struct Capabilities {
     pub active_window: bool,
     pub activate_window: bool,
     pub close_window: bool,
+    pub pointer_position: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

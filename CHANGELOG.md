@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `wdotool getmouselocation` reads the compositor's current pointer position and prints it as `x:N y:N` (xdotool's default format). First read-side input API in wdotool: every prior command was a send-side virtual-pointer or virtual-keyboard call. Supported on KDE (kwin script reading `workspace.cursorPos`) and GNOME (Shell extension calling `global.get_pointer()`); exits 1 with a clear stderr message on libei / wlroots / uinput because their Wayland protocols are send-only by design. Capabilities schema's `extras` grew a `pointer_position` boolean reporting backend support.
+- GNOME companion Shell extension: new `GetPointerPosition` D-Bus method on `org.wdotool.GnomeShellBridge`. If you already have an older copy of the extension installed, reinstall from `packaging/gnome-extension/wdotool@wdotool.github.io/` to pick up the new method (older copies will return a D-Bus error on `getmouselocation`).
+
 ## [0.3.0] — 2026-04-26
 
 ### Added

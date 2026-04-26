@@ -34,6 +34,16 @@ pub trait Backend: Send + Sync {
     async fn active_window(&self) -> Result<Option<WindowInfo>>;
     async fn activate_window(&self, id: &WindowId) -> Result<()>;
     async fn close_window(&self, id: &WindowId) -> Result<()>;
+
+    /// Read the compositor's current pointer position in screen
+    /// coordinates. Returns `Ok(None)` for backends that can't expose
+    /// it: libei is send-only by design, wlroots' virtual-pointer is
+    /// likewise send-only with no read protocol, and uinput is at the
+    /// kernel layer with no notion of "screen". KDE reads via a
+    /// transient kwin script, GNOME via the companion Shell extension.
+    async fn pointer_position(&self) -> Result<Option<(i32, i32)>> {
+        Ok(None)
+    }
 }
 
 pub type DynBackend = Box<dyn Backend>;

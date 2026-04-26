@@ -266,6 +266,7 @@ impl Backend for UinputBackend {
             active_window: false,
             activate_window: false,
             close_window: false,
+            pointer_position: false,
         }
     }
 
