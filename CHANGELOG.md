@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-04-26
+
 ### Added
 - `wdotool search --any` flips filter combination from the default AND to OR. With multiple filters set (`--name`, `--class`, `--pid`), the default behavior requires every filter to match; `--any` accepts a window if at least one set filter matches. `--all` is also accepted as a no-op for xdotool argv compatibility, since it just names the existing default. The two flags are mutually exclusive (clap rejects with exit 2). With no filters set, `--any` falls through to "list everything" so that `wdotool search --any` and `wdotool search` behave the same with zero filters.
 - `@wdotool/capabilities` npm package. TypeScript types and the JSON Schema document for the `wdotool capabilities` output, packaged so JS/TS consumers (wflows.com, dashboards, config UIs) can parse a capabilities report with full type safety. Exports `CapabilitiesReport` and the supporting types, an `isCapabilitiesReport` runtime guard, and the schema itself for use with ajv. Source under `packaging/npm/`. The schema is synced from `docs/capabilities-schema.json` at build time, and CI fails if the locked enums in `src/types.ts` drift from the schema. First publish is manual via the new `npm publish` workflow once the npm org is set up.

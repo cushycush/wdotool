@@ -1,6 +1,6 @@
 {
   "name": "@wdotool/capabilities",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "TypeScript types and JSON Schema for wdotool's `wdotool capabilities` output. Lets JS/TS consumers (wflows.com, dashboards, etc.) parse a capabilities report with full type safety.",
   "type": "module",
   "main": "dist/index.js",
