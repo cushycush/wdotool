@@ -17,14 +17,14 @@ Reading wflow/src/recorder.rs, the substrate-shaped pieces are:
 - **Evdev event mapping** — turning `evdev::InputEvent` into the same `RecEvent`. Lives in `evdev_to_rec` (~140 lines).
 - **Throttling** for pointer motion. Both portal and evdev paths accumulate sub-threshold movement and emit at intervals.
 - **Tail-trim** — drop the user's stop-recording click from the captured stream so the workflow doesn't replay clicking on the recorder UI.
-- The `RecEvent` enum itself (Key, Text, Click, Move, Scroll, WindowFocus, Gap).
+- A trimmed `RecEvent` enum: Key, Click, Move, Scroll, Gap. (Text and WindowFocus stay in wflow per the resolved decisions below.)
 
 The wflow-shaped pieces that should stay there:
 
-- `RecFrame` (Armed / Started / Event / Stopped) — UI status frames. Could be useful in wdotool too, but it's a thin wrapper; defer until a second consumer asks for it.
-- `events_to_workflow()` — coalesces raw events into wflow `Action` steps. Specific to wflow's `Action` type, can't move.
+- `RecFrame` (Armed / Started / Event / Stopped) — UI status wrapper. Stays in wflow.
+- `events_to_workflow()` — coalesces raw events into wflow `Action` steps. Specific to wflow's `Action` type. The `Text` event variant is also produced here (coalesced from sequential `Key` events), so it stays.
 - The QML bridge (`src/bridge/recorder.rs`) and RecordPage QML.
-- The Hyprland focus-tracking glue (subscribes to `.socket2.sock`). This one's borderline — it's compositor-specific input enrichment, but it's tightly coupled to wflow's `WindowFocus` event variant. I'd leave it in wflow for v1 and revisit if a second consumer needs window-focus events.
+- The Hyprland focus-tracking glue (subscribes to `.socket2.sock`) plus the `WindowFocus` event it produces. wflow merges its own focus stream with wdotool-core's input stream before pushing through the bridge.
 
 ## Proposed API in `wdotool-core::recorder`
 
@@ -33,7 +33,9 @@ Behind a new `recorder` Cargo feature so library consumers who only want send-si
 ```rust
 // wdotool_core::recorder
 
-/// A single captured input event.
+/// A single captured input event. Pure input — no focus / window /
+/// lifecycle events. Consumers that want those wrap this stream in
+/// their own enum (see wflow's `RecFrame`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RecEvent {
@@ -46,6 +48,10 @@ pub enum RecEvent {
     Move { t_ms: u64, x: i32, y: i32, kind: MoveKind },
     /// Scroll.
     Scroll { t_ms: u64, dx: i32, dy: i32 },
+    /// Auto-inserted when nothing else happened for a while. Lets
+    /// replay reproduce timing without the consumer having to track
+    /// elapsed time between events.
+    Gap { t_ms: u64, ms: u64 },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -117,45 +123,47 @@ let events = session.stop().await?;
 serde_json::to_writer_pretty(out, &events)?;
 ```
 
-## Open questions
+## Resolved decisions
 
-These are the real design decisions I want feedback on before code lands.
+The three blocking design questions are answered. Captured here so PR-1 has a contract to build against.
 
-**1. Stream vs callback?**
+**1. Stream, not callback.**
 
-wflow's current shape is a callback (`FrameSink = Arc<dyn Fn(RecFrame) + Send + Sync>`). My proposal is a Stream. Streams compose better (`.filter`, `.take_while`, `.timeout`), but Qt's signal flow through the bridge is callback-shaped. wflow's bridge would either adapt the stream into a callback, or keep using a callback adapter.
+`RecorderSession::events()` returns `impl Stream<Item = RecEvent> + Send + '_`. Consumers compose with the standard `futures::StreamExt` toolbox (`.filter`, `.take_while`, `.timeout`). The wflow bridge builds a tiny `pin_mut!(stream); while let Some(ev) = stream.next().await { sink(ev); }` adapter to keep the existing Qt signal path working. About six lines on the wflow side; trivial.
 
-Either works. A stream is more general; a callback is what wflow already has. The cleanest answer is probably: ship the Stream API, let the wflow bridge build a tiny `pin_mut!(stream); while let Some(ev) = stream.next().await` adapter. Open to "no, just keep the callback" if Qt integration is hairier than I think.
+The reason this wins: streams are how every other async library on Rust exposes "live event source." Callbacks force the recorder to know about the consumer's threading model (`Arc<dyn Fn>`), which leaks Qt-shaped concerns into a substrate library. Streams are inert; the consumer drives them on whatever runtime / thread it wants.
 
-**2. Where does `RecFrame` live?**
+**2. `RecFrame` stays in wflow.**
 
-wflow has `RecFrame` (Armed / Started / Event / Stopped) as a UI status wrapper. Two options:
+wdotool-core ships only `RecEvent`. The `Armed` / `Started` / `Event` / `Stopped` lifecycle wrapper is UI-flavored, owned by wflow's bridge. If a second consumer ever asks for lifecycle frames (a CLI status indicator, a TUI recorder, etc.) we promote later. For v1, every consumer that wants lifecycle awareness builds it themselves on top of `RecorderSession`'s natural lifecycle: session creation = "Started," stream completion or `stop()` call = "Stopped." Two states, no enum needed for the substrate.
 
-- (a) Keep it in wflow. wdotool-core only ships RecEvent; wflow wraps with its own RecFrame for the bridge.
-- (b) Move RecFrame to wdotool-core too. Any consumer streaming to a UI gets the lifecycle frames for free.
+**3. WindowFocus tracking stays in wflow.**
 
-I lean (a) for v1. RecFrame is UI-flavored; wdotool-core stays event-shaped. If a second consumer asks for lifecycle frames later, we promote.
+wflow keeps the Hyprland `.socket2.sock` glue and the `RecEvent::WindowFocus` variant gets dropped from the substrate enum. wdotool-core's `RecEvent` is pure input: Key, Click, Move, Scroll, Gap. wflow merges its own focus-event stream with wdotool-core's event stream before pushing through the bridge.
 
-**3. Hyprland focus tracking?**
+Reason: focus is a different kind of event than "the user moved the mouse." Lifting focus tracking would bake a Hyprland-specific dependency into the substrate, and other compositors would need parallel implementations (KWin script, GNOME extension, sway IPC) just to claim feature parity. wflow already pays that cost willingly because workflows are inherently focus-aware. wdotool-core stays focused (pun acknowledged) on input.
 
-wflow's recorder also subscribes to Hyprland's `.socket2.sock` to add `WindowFocus` events to the stream. This is genuinely useful in workflow recordings (focus changes are the boundaries between "open this app, then do that"). But it's compositor-specific (Hyprland only) and the `RecEvent::WindowFocus` variant is closer to a wflow concept than a wdotool input concept.
+The migrated `RecEvent` enum after this resolves:
 
-Two options:
+```rust
+pub enum RecEvent {
+    Key { t_ms: u64, chord: String },
+    Click { t_ms: u64, button: u8 },
+    Move { t_ms: u64, x: i32, y: i32, kind: MoveKind },
+    Scroll { t_ms: u64, dx: i32, dy: i32 },
+    Gap { t_ms: u64, ms: u64 },
+}
+```
 
-- (a) Leave focus tracking in wflow. wdotool-core ships pure input events. wflow merges its own focus stream with wdotool-core's event stream before pushing to UI.
-- (b) Lift focus tracking too. Add a `RecEvent::WindowFocus` variant. Document as best-effort, Hyprland-only today, KDE/GNOME later.
+(Text fell out too — the wflow `Text` variant is a coalescing artifact, not a raw input event. wflow's `events_to_workflow` keeps building it from the underlying `Key` events.)
 
-I lean (a). Focus is a different kind of event than "the user moved the mouse," and lifting it bakes a Hyprland dependency into the substrate that other compositors will need parallel implementations of. wflow is the right place to compose them today.
+## Notes that aren't blockers
 
-**4. Async runtime tax?**
+These came up during design but don't gate PR-1.
 
-wdotool-core today uses tokio for the existing backend trait methods. The recorder will need it too (ashpd is async, libei stream pumping is async, the Hyprland socket reader is async). No new dependency, but the `recorder` Cargo feature pulls a heavier subset of tokio (signal handling for Ctrl-C in the CLI, mpsc for the stream channel, etc.) than the baseline.
+**Async runtime tax.** wdotool-core already uses tokio for the existing backend trait methods. The recorder needs it too (ashpd is async, libei stream pumping is async). No new dependency, but the `recorder` Cargo feature pulls a heavier subset of tokio (signal handling for Ctrl-C in the CLI, mpsc for the stream channel) than the baseline. Acceptable; the feature gate means non-recording consumers don't pay.
 
-Acceptable. The feature gate means library consumers who don't want recording don't pay this cost.
-
-**5. Error model on the migrating events?**
-
-wflow's recorder uses `anyhow::Result` everywhere. wdotool-core uses its own `WdoError` / `Result`. The migration ports the error paths; some `anyhow::anyhow!("...")` strings become `WdoError::Backend { backend, source }` or `WdoError::NotSupported { backend, what }`. Mechanical translation, but it's a real chunk of the diff.
+**Error model.** wflow's recorder uses `anyhow::Result`, wdotool-core uses `WdoError` / `Result`. The migration mechanically translates `anyhow::anyhow!("...")` strings into `WdoError::Backend { backend, source }` or `WdoError::NotSupported { backend, what }`. Real chunk of the diff but no novel design; existing wdotool-core errors already cover the shapes the recorder produces.
 
 ## Migration sequence
 
@@ -184,18 +192,16 @@ PR-1 and PR-2 land in wdotool first, in either order. PR-3 follows once the new 
 
 ## Sign-off bar
 
-Before PR-1 lands, this doc should answer:
+The three blocking design questions are resolved (Stream API, RecFrame stays in wflow, WindowFocus tracking stays in wflow). PR-1 is unblocked.
 
-- Stream vs callback (decision in writing)
-- Where RecFrame lives (decision in writing)
-- Where WindowFocus tracking lives (decision in writing)
+Remaining checkpoints:
 
 After PR-1 lands but before PR-3:
 
-- wdotool-core 0.4.0 publishes to crates.io
-- The recorder module gets at least one library consumer beyond wflow (could be the `wdotool record` CLI in PR-2 itself)
+- wdotool-core 0.4.0 publishes to crates.io.
+- The recorder module gets at least one library consumer beyond wflow. The `wdotool record` CLI in PR-2 satisfies this.
 
 After PR-3 lands:
 
-- wflow's CI still passes against the new wdotool-core
-- wflow's recorder.rs LoC count drops as expected
+- wflow's CI still passes against the new wdotool-core.
+- wflow's recorder.rs LoC count drops materially (rough target: ~−800 lines after the lift).
