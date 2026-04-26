@@ -146,6 +146,8 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
             pid,
             regex,
             ignore_case,
+            any,
+            all: _,
         } => {
             let windows = backend.list_windows().await?;
             let filters = SearchFilters::compile(SearchFlags {
@@ -154,6 +156,7 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
                 pid,
                 regex,
                 ignore_case,
+                any,
             })?;
             let mut matched = false;
             for w in windows.iter().filter(|w| filters.matches(w)) {
@@ -316,6 +319,7 @@ struct SearchFlags<'a> {
     pid: Option<u32>,
     regex: bool,
     ignore_case: bool,
+    any: bool,
 }
 
 /// Compiled search predicates. Built once per `wdotool search` call and
@@ -325,6 +329,8 @@ struct SearchFilters {
     name: Option<Regex>,
     class: Option<Regex>,
     pid: Option<u32>,
+    /// True when `--any` was passed: matching switches from AND to OR.
+    any: bool,
 }
 
 impl SearchFilters {
@@ -350,10 +356,20 @@ impl SearchFilters {
             name: flags.name.map(|p| make_regex(p, "--name")).transpose()?,
             class: flags.class.map(|p| make_regex(p, "--class")).transpose()?,
             pid: flags.pid,
+            any: flags.any,
         })
     }
 
     fn matches(&self, w: &WindowInfo) -> bool {
+        if self.any {
+            self.matches_any(w)
+        } else {
+            self.matches_all(w)
+        }
+    }
+
+    /// AND semantics (default): every set filter must match.
+    fn matches_all(&self, w: &WindowInfo) -> bool {
         if let Some(re) = &self.name {
             if !re.is_match(&w.title) {
                 return false;
@@ -374,6 +390,35 @@ impl SearchFilters {
             }
         }
         true
+    }
+
+    /// OR semantics (`--any`): at least one set filter must match.
+    /// With zero set filters, falls back to "match everything" so that
+    /// `wdotool search --any` (no filters) lists all windows, same as
+    /// `wdotool search` does.
+    fn matches_any(&self, w: &WindowInfo) -> bool {
+        let any_set = self.name.is_some() || self.class.is_some() || self.pid.is_some();
+        if !any_set {
+            return true;
+        }
+        if let Some(re) = &self.name {
+            if re.is_match(&w.title) {
+                return true;
+            }
+        }
+        if let Some(re) = &self.class {
+            if let Some(a) = w.app_id.as_deref() {
+                if re.is_match(a) {
+                    return true;
+                }
+            }
+        }
+        if let Some(p) = self.pid {
+            if w.pid == Some(p) {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -402,6 +447,7 @@ mod search_tests {
             pid,
             regex: false,
             ignore_case: false,
+            any: false,
         }
     }
 
@@ -429,6 +475,7 @@ mod search_tests {
             pid: None,
             regex: true,
             ignore_case: false,
+            any: false,
         })
         .unwrap();
         assert!(f.matches(&win("1", "Firefox", None, None)));
@@ -443,6 +490,7 @@ mod search_tests {
             pid: None,
             regex: false,
             ignore_case: true,
+            any: false,
         })
         .unwrap();
         assert!(f.matches(&win("1", "Mozilla Firefox", None, None)));
@@ -456,6 +504,7 @@ mod search_tests {
             pid: None,
             regex: true,
             ignore_case: true,
+            any: false,
         })
         .unwrap();
         assert!(f.matches(&win("1", "Mozilla Firefox", None, None)));
@@ -511,6 +560,84 @@ mod search_tests {
         assert!(f.matches(&win("2", "Else", Some("kitty"), Some(99))));
     }
 
+    fn flags_any<'a>(
+        name: Option<&'a str>,
+        class: Option<&'a str>,
+        pid: Option<u32>,
+    ) -> SearchFlags<'a> {
+        SearchFlags {
+            name,
+            class,
+            pid,
+            regex: false,
+            ignore_case: false,
+            any: true,
+        }
+    }
+
+    #[test]
+    fn any_matches_when_only_name_matches() {
+        let f = SearchFilters::compile(flags_any(Some("Firefox"), Some("nope"), Some(99))).unwrap();
+        // Title matches, class and pid don't. With AND this would be
+        // rejected; with --any, name alone is enough.
+        assert!(f.matches(&win(
+            "1",
+            "Firefox - Wikipedia",
+            Some("org.mozilla.firefox"),
+            Some(1234)
+        )));
+    }
+
+    #[test]
+    fn any_matches_when_only_class_matches() {
+        let f = SearchFilters::compile(flags_any(Some("nope"), Some("firefox"), Some(99))).unwrap();
+        assert!(f.matches(&win(
+            "1",
+            "Wikipedia",
+            Some("org.mozilla.firefox"),
+            Some(1234)
+        )));
+    }
+
+    #[test]
+    fn any_matches_when_only_pid_matches() {
+        let f = SearchFilters::compile(flags_any(Some("nope"), Some("nope"), Some(1234))).unwrap();
+        assert!(f.matches(&win(
+            "1",
+            "Wikipedia",
+            Some("org.mozilla.firefox"),
+            Some(1234)
+        )));
+    }
+
+    #[test]
+    fn any_rejects_when_no_filter_matches() {
+        let f = SearchFilters::compile(flags_any(Some("nope"), Some("nope"), Some(99))).unwrap();
+        assert!(!f.matches(&win(
+            "1",
+            "Wikipedia",
+            Some("org.mozilla.firefox"),
+            Some(1234)
+        )));
+    }
+
+    #[test]
+    fn any_with_no_filters_matches_everything() {
+        // Same fall-through as default: zero filters lists all windows
+        // regardless of which combinator was chosen.
+        let f = SearchFilters::compile(flags_any(None, None, None)).unwrap();
+        assert!(f.matches(&win("1", "Anything", None, None)));
+        assert!(f.matches(&win("2", "Else", Some("kitty"), Some(99))));
+    }
+
+    #[test]
+    fn any_with_class_filter_skips_window_without_app_id() {
+        // app_id None can't satisfy a class regex; with --any and only
+        // a class filter set, that means the window doesn't match.
+        let f = SearchFilters::compile(flags_any(None, Some("anything"), None)).unwrap();
+        assert!(!f.matches(&win("1", "Some Page", None, None)));
+    }
+
     #[test]
     fn invalid_regex_pattern_returns_invalid_arg() {
         let result = SearchFilters::compile(SearchFlags {
@@ -519,6 +646,7 @@ mod search_tests {
             pid: None,
             regex: true,
             ignore_case: false,
+            any: false,
         });
         match result {
             Err(WdoError::InvalidArg(msg)) => assert!(msg.contains("--name")),

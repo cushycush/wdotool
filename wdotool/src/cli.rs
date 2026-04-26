@@ -109,6 +109,17 @@ pub enum Command {
         /// both substring and regex modes.
         #[arg(long)]
         ignore_case: bool,
+        /// Combine filters with OR instead of the default AND. Without
+        /// this, a window must match every set filter. With this, a
+        /// window matching at least one set filter is included.
+        /// Mirrors xdotool's `--any`. Conflicts with `--all`.
+        #[arg(long, conflicts_with = "all")]
+        any: bool,
+        /// Combine filters with AND. This is already the default; the
+        /// flag exists so xdotool scripts that explicitly pass `--all`
+        /// keep working unchanged.
+        #[arg(long)]
+        all: bool,
     },
 
     /// Print the active window's id.
