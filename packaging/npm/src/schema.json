@@ -99,7 +99,7 @@
     },
     "extras": {
       "type": "object",
-      "required": ["diag", "outputs", "record", "json_output", "pointer_position"],
+      "required": ["diag", "outputs", "record", "json_output", "pointer_position", "window_geometry"],
       "properties": {
         "diag": {
           "type": "boolean",
@@ -129,6 +129,10 @@
         "pointer_position": {
           "type": "boolean",
           "description": "Whether `wdotool getmouselocation` can read the compositor's current pointer position on the selected backend. KDE (kwin script) and GNOME (Shell extension) emit `true`; libei, wlroots, and uinput emit `false` because the relevant Wayland protocols are send-only."
+        },
+        "window_geometry": {
+          "type": "boolean",
+          "description": "Whether `wdotool getwindowgeometry` can read a window's frame position and size on the selected backend. KDE (kwin script reading `window.frameGeometry`) and GNOME (Shell extension calling `MetaWindow.get_frame_rect`) emit `true`; wlroots emits `false` because `zwlr_foreign_toplevel_management_v1` doesn't expose geometry, and libei and uinput have no window concept."
         }
       }
     },

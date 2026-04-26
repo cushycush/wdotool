@@ -358,6 +358,7 @@ fn worker_main(
         close_window: state.scratch.ft_mgr.is_some(),
         pointer_position: false,
         list_outputs: true,
+        window_geometry: false,
     };
     if ready_tx.send(Ok(caps)).is_err() {
         return;

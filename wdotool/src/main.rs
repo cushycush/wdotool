@@ -10,7 +10,9 @@ use regex::Regex;
 
 use wdotool_core::detector::{self, BackendKind, Environment};
 use wdotool_core::keysym;
-use wdotool_core::{Backend, KeyDirection, MouseButton, Result, WdoError, WindowId, WindowInfo};
+use wdotool_core::{
+    Backend, KeyDirection, MouseButton, Result, WdoError, WindowGeometry, WindowId, WindowInfo,
+};
 
 use cli::{Cli, Command};
 
@@ -79,6 +81,7 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
             println!("  close_window:          {}", caps.close_window);
             println!("  pointer_position:      {}", caps.pointer_position);
             println!("  list_outputs:          {}", caps.list_outputs);
+            println!("  window_geometry:       {}", caps.window_geometry);
         }
         Command::Key {
             clearmodifiers,
@@ -272,6 +275,40 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
                 Some(app_id) => println!("{app_id}"),
                 None => {
                     eprintln!("wdotool: classname (app_id) not available for window {id}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Command::Getwindowgeometry { id } => {
+            // Trait contract:
+            //   Ok(Some(geom)) -> backend supports it, found, here it is
+            //   Err(WindowNotFound) -> backend supports it, but no
+            //                          window with that id
+            //   Ok(None) -> backend doesn't support reading geometry
+            // The error path bubbles via `?` so we only handle
+            // Ok(Some) and Ok(None) explicitly here.
+            match backend.window_geometry(&WindowId(id.clone())).await? {
+                Some(WindowGeometry {
+                    x,
+                    y,
+                    width,
+                    height,
+                }) => {
+                    // Match xdotool's default format. The "screen"
+                    // line xdotool prints doesn't translate to Wayland
+                    // (compositors don't expose a stable screen index
+                    // that's meaningful to clients), so we drop it.
+                    println!("Window {id}");
+                    println!("  Position: {x},{y}");
+                    println!("  Geometry: {width}x{height}");
+                }
+                None => {
+                    eprintln!(
+                        "wdotool: window geometry is unreadable on the {} backend (no Wayland \
+                         protocol exposes window geometry to other clients). Use the kde or \
+                         gnome backend.",
+                        backend.name()
+                    );
                     std::process::exit(1);
                 }
             }

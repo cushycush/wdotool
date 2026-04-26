@@ -32,4 +32,6 @@ pub(crate) mod portal_token;
 pub use backend::detector;
 pub use backend::{Backend, DynBackend};
 pub use error::{Result, WdoError};
-pub use types::{Capabilities, KeyDirection, MouseButton, OutputInfo, WindowId, WindowInfo};
+pub use types::{
+    Capabilities, KeyDirection, MouseButton, OutputInfo, WindowGeometry, WindowId, WindowInfo,
+};

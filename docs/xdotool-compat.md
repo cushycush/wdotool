@@ -49,7 +49,7 @@ This page is the honest table. If you are porting a script and the command you w
 | `getwindowname` | ✅ | Prints the title of a window by id. Pair with `wdotool search` to get an id |
 | `getwindowpid` | ✅ | Prints the PID of a window by id. Exits 1 if the backend can't resolve a PID for that window (some compositors don't expose it) |
 | `getwindowclassname` | ✅ | Prints the Wayland app_id of a window by id (the closest equivalent to X11's WM_CLASS classname). Exits 1 if no app_id is set |
-| `getwindowgeometry` | ❌ | Compositor-dependent; wlroots can do it through foreign-toplevel, KWin via scripting. Not built yet |
+| `getwindowgeometry` | 🧪 | KDE (kwin script reading `window.frameGeometry`) and GNOME (Shell extension calling `MetaWindow.get_frame_rect`) both implement it. wlroots' `zwlr_foreign_toplevel_management_v1` does not expose geometry, so the wlroots backend exits 1 with a clear message; libei and uinput likewise exit 1 |
 
 ## Selection / interactive UI
 
