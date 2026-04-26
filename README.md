@@ -103,8 +103,16 @@ wdotool mousemove --relative 10 -5        # relative
 wdotool click 1                           # 1=left, 2=middle, 3=right, 8=back, 9=forward
 wdotool scroll 0 3                        # scroll 3 units down
 
-wdotool search --name "Firefox"           # list matching windows
+wdotool search --name "Firefox"           # substring match on title
+wdotool search --class firefox            # match on Wayland app_id
+wdotool search --pid 1234                 # match on process id
+wdotool search --name 'Fire.*x' --regex   # full regex semantics
+wdotool search --name FOX --ignore-case   # case-insensitive
+wdotool search --name fox --pid 1234 --any   # OR filters instead of AND
 wdotool getactivewindow                   # print focused window's id
+wdotool getwindowname <id>                # print a window's title
+wdotool getwindowpid <id>                 # print a window's PID
+wdotool getwindowclassname <id>           # print a window's app_id (X11 WM_CLASS equivalent)
 wdotool windowactivate <id>               # focus a window
 wdotool windowclose <id>                  # close a window
 ```
@@ -200,7 +208,7 @@ The engine lives in a separate `wdotool-core` crate, so other Rust projects can 
 ```toml
 # Cargo.toml
 [dependencies]
-wdotool-core = "0.1"
+wdotool-core = "0.3"
 ```
 
 Each backend is gated behind a Cargo feature (`libei`, `wlroots`, `kde`, `gnome`, `uinput`). Default-on enables all five. To skip a backend, opt out:
@@ -208,7 +216,7 @@ Each backend is gated behind a Cargo feature (`libei`, `wlroots`, `kde`, `gnome`
 ```toml
 # Drop uinput's input-linux + libc deps; useful in sandboxed builds (Flatpak)
 # where /dev/uinput is not reachable.
-wdotool-core = { version = "0.1", default-features = false, features = ["libei", "wlroots", "kde", "gnome"] }
+wdotool-core = { version = "0.3", default-features = false, features = ["libei", "wlroots", "kde", "gnome"] }
 ```
 
 Public API (intentionally small):
@@ -223,6 +231,8 @@ backend.key("ctrl+c", KeyDirection::PressRelease).await?;
 
 The full list: `Backend` trait, `DynBackend`, `detector::{build, Environment, BackendKind}`, `keysym::parse_chain`, the value types (`Capabilities`, `WindowInfo`, etc.), and `WdoError` / `Result`. Per-backend types stay private; you build through `detector::build`.
 
+For JS or TS tools that parse `wdotool capabilities` output, the typed schema ships separately on npm as [`@wdotool/capabilities`](packaging/npm). It exports the JSON Schema document plus hand-written TypeScript types and a small `isCapabilitiesReport` runtime guard, so a typical consumer goes from `JSON.parse(stdout)` (untyped) to a fully typed `CapabilitiesReport` with autocomplete on the locked enums (`type_unicode`, `match_by`, etc.).
+
 ## Building
 
 Requires Rust 1.82+ (the CLI uses `Option::is_none_or`). Builds cleanly on stable.
@@ -230,7 +240,7 @@ Requires Rust 1.82+ (the CLI uses `Option::is_none_or`). Builds cleanly on stabl
 ```sh
 cargo build             # dev (workspace root builds both crates)
 cargo build --release   # release binary at target/release/wdotool
-cargo test              # 32 unit tests across both crates
+cargo test              # 53 unit tests across both crates
 ```
 
 System libraries at build time: `libxkbcommon-dev` and `libwayland-dev` (Debian/Ubuntu names; same underlying libraries elsewhere).
@@ -274,7 +284,9 @@ wdotool/             # binary: the CLI
 
 Every real backend runs on a dedicated OS thread because the underlying event streams (`reis::EiConvertEventStream`, `wayland_client::EventQueue`) are not `Send`. Input ops dispatch to those threads via channels.
 
-See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+Packaging artifacts live under `packaging/`: the AUR `PKGBUILD` templates (`packaging/aur/`), the Flathub manifest plus AppStream metainfo (`packaging/flatpak/`), the GNOME Shell extension that powers the gnome backend's window ops (`packaging/gnome-extension/`), and the `@wdotool/capabilities` npm package (`packaging/npm/`).
+
+See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`docs/xdotool-compat.md`](docs/xdotool-compat.md) for the honest xdotool parity table.
 
 ## Contributing
 
