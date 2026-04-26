@@ -363,6 +363,17 @@ fn worker_main(
         return;
     }
 
+    // Tracks the currently-depressed XKB modifier bitmask. Hyprland
+    // (and wlroots in general) does NOT auto-derive modifier_state
+    // from virtual keyboard key events the way it does for real
+    // hardware — it requires an explicit zwp_virtual_keyboard.modifiers
+    // request. Without this, pressing Control_L doesn't make Ctrl
+    // appear held during the next key press, and chords like ctrl+l
+    // / super+j get delivered as a bare 'l' / 'j' to the focused
+    // client. The state is owned by the worker thread (single-
+    // threaded loop), so a plain u32 suffices.
+    let mut mods_depressed: u32 = 0;
+
     // Command loop. Each command is followed by a short dispatch to drain
     // events that arrived in response (e.g., foreign-toplevel updates).
     loop {
@@ -373,7 +384,14 @@ fn worker_main(
         match cmd {
             Command::Shutdown => break,
             Command::Key { keysym, dir, reply } => {
-                let res = do_key(&conn, &vk_obj, keymap.as_ref(), &keysym, dir);
+                let res = do_key(
+                    &conn,
+                    &vk_obj,
+                    keymap.as_ref(),
+                    &keysym,
+                    dir,
+                    &mut mods_depressed,
+                );
                 let _ = reply.send(res);
             }
             Command::TypeText { text, delay, reply } => {
@@ -527,6 +545,7 @@ fn do_key(
     keymap: Option<&SafeKeymap>,
     keysym: &str,
     dir: KeyDirection,
+    mods_depressed: &mut u32,
 ) -> Result<()> {
     let vk = vk_obj.as_ref().ok_or(WdoError::NotSupported {
         backend: NAME,
@@ -556,9 +575,26 @@ fn do_key(
     };
     let shift_kc = resolve_keycode(&keymap.0, "Shift_L").map(|(kc, _)| kc);
 
+    // If this keysym is a modifier (Control_L, Shift_L, Alt_L, Super_L,
+    // …), the corresponding XKB modifier bit needs toggling in
+    // mods_depressed and the new state pushed via vk.modifiers().
+    // Without this, the focused client never sees the modifier as
+    // held during a chord — pressing Control_L then 'l' delivers a
+    // bare 'l'.
+    let mod_bit = mod_bit_for_keysym(&keymap.0, keysym);
+
     let time = millis_monotonic();
+
+    // Apply the modifier-state update BEFORE the key event so the
+    // compositor advertises the new state when the leaf key fires.
+    let push_mods = |mods: u32| vk.modifiers(mods, 0, 0, 0);
+
     match dir {
         KeyDirection::Press => {
+            if let Some(bit) = mod_bit {
+                *mods_depressed |= bit;
+                push_mods(*mods_depressed);
+            }
             if needs_shift {
                 if let Some(kc) = shift_kc {
                     vk.key(time, kc, 1);
@@ -573,8 +609,16 @@ fn do_key(
                     vk.key(time, kc, 0);
                 }
             }
+            if let Some(bit) = mod_bit {
+                *mods_depressed &= !bit;
+                push_mods(*mods_depressed);
+            }
         }
         KeyDirection::PressRelease => {
+            if let Some(bit) = mod_bit {
+                *mods_depressed |= bit;
+                push_mods(*mods_depressed);
+            }
             if needs_shift {
                 if let Some(kc) = shift_kc {
                     vk.key(time, kc, 1);
@@ -587,10 +631,35 @@ fn do_key(
                     vk.key(time, kc, 0);
                 }
             }
+            if let Some(bit) = mod_bit {
+                *mods_depressed &= !bit;
+                push_mods(*mods_depressed);
+            }
         }
     }
     conn.flush().map_err(wayland_io_err)?;
     Ok(())
+}
+
+/// If `keysym` names a modifier key (Control_L, Shift_L, Alt_L,
+/// Super_L, Meta_L, ISO_Level3_Shift, …), return the XKB modifier
+/// bit (1 << keymap.mod_get_index(name)) that should be toggled in
+/// mods_depressed. Returns None for non-modifier keysyms.
+fn mod_bit_for_keysym(keymap: &xkb::Keymap, keysym: &str) -> Option<u32> {
+    let xkb_mod = match keysym {
+        "Shift_L" | "Shift_R" => xkb::MOD_NAME_SHIFT,
+        "Caps_Lock" => xkb::MOD_NAME_CAPS,
+        "Control_L" | "Control_R" => xkb::MOD_NAME_CTRL,
+        "Alt_L" | "Alt_R" | "Meta_L" | "Meta_R" => xkb::MOD_NAME_ALT,
+        "Super_L" | "Super_R" => xkb::MOD_NAME_LOGO,
+        "ISO_Level3_Shift" => "Mod5",
+        _ => return None,
+    };
+    let idx = keymap.mod_get_index(xkb_mod);
+    if idx == xkb::MOD_INVALID {
+        return None;
+    }
+    Some(1u32 << idx)
 }
 
 fn do_type_text(
