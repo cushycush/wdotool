@@ -20,7 +20,7 @@ use zbus::{interface, proxy, Connection};
 use super::libei::LibeiBackend;
 use super::Backend;
 use crate::error::{Result, WdoError};
-use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
+use crate::types::{Capabilities, KeyDirection, MouseButton, WindowGeometry, WindowId, WindowInfo};
 
 const NAME: &str = "kde-dbus";
 
@@ -42,6 +42,10 @@ struct PendingState {
     active_waiters: HashMap<u64, oneshot::Sender<String>>,
     action_waiters: HashMap<u64, oneshot::Sender<bool>>,
     pointer_waiters: HashMap<u64, oneshot::Sender<Option<(i32, i32)>>>,
+    /// `Option<WindowGeometry>` lets us distinguish "found, here it is"
+    /// (`Some(geom)`) from "id didn't match any window" (`None`),
+    /// which the caller turns into `Err(WdoError::WindowNotFound)`.
+    geometry_waiters: HashMap<u64, oneshot::Sender<Option<WindowGeometry>>>,
 }
 
 /// D-Bus interface our KWin scripts call back into. Names are PascalCase on
@@ -84,6 +88,35 @@ impl Bridge {
         let sender = self.pending.lock().await.pointer_waiters.remove(&req_id);
         if let Some(tx) = sender {
             let _ = tx.send(if ok { Some((x, y)) } else { None });
+        }
+    }
+
+    /// Window-geometry result. `found=false` means no window matched
+    /// the requested id; the caller maps that to
+    /// `WdoError::WindowNotFound`. When `found=true`, the four geometry
+    /// fields carry the frame rect.
+    async fn report_geometry(
+        &self,
+        req_id: u64,
+        found: bool,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) {
+        let sender = self.pending.lock().await.geometry_waiters.remove(&req_id);
+        if let Some(tx) = sender {
+            let payload = if found {
+                Some(WindowGeometry {
+                    x,
+                    y,
+                    width: width.max(0) as u32,
+                    height: height.max(0) as u32,
+                })
+            } else {
+                None
+            };
+            let _ = tx.send(payload);
         }
     }
 }
@@ -244,6 +277,39 @@ impl KdeBackend {
         Ok(Some(parsed.into()))
     }
 
+    async fn window_geometry_impl(&self, target_id: &str) -> Result<Option<WindowGeometry>> {
+        let req_id = self.next_request_id();
+        let (tx, rx) = oneshot::channel::<Option<WindowGeometry>>();
+        self.pending
+            .lock()
+            .await
+            .geometry_waiters
+            .insert(req_id, tx);
+
+        let script = window_geometry_script(req_id, target_id);
+        self.run_kwin_script(&script).await?;
+
+        let result = tokio::time::timeout(Duration::from_secs(3), rx)
+            .await
+            .map_err(|_| WdoError::Backend {
+                backend: NAME,
+                source: "timed out waiting for KWin geometry callback".into(),
+            })?
+            .map_err(|_| WdoError::Backend {
+                backend: NAME,
+                source: "KWin geometry script aborted before callback".into(),
+            })?;
+        // The script returned `found=false` means no window with that
+        // id exists. KDE supports geometry reads, so that's a
+        // not-found error, not an unsupported-backend signal. Reserve
+        // `Ok(None)` for the (extremely rare) "window exists but its
+        // frameGeometry was unreadable" case the script also covers.
+        match result {
+            Some(geom) => Ok(Some(geom)),
+            None => Err(WdoError::WindowNotFound(target_id.to_string())),
+        }
+    }
+
     async fn pointer_position_impl(&self) -> Result<Option<(i32, i32)>> {
         let req_id = self.next_request_id();
         let (tx, rx) = oneshot::channel::<Option<(i32, i32)>>();
@@ -355,6 +421,50 @@ fn active_window_script(req_id: u64) -> String {
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id
+    )
+}
+
+fn window_geometry_script(req_id: u64, target_id: &str) -> String {
+    // window.frameGeometry is a QRect with x, y, width, height. We
+    // walk the same window list that list_windows uses, find the one
+    // matching the requested id, and report its geometry. If no
+    // window matches, found=false and the caller maps to
+    // WindowNotFound.
+    format!(
+        r#"
+(function() {{
+  var target = {target};
+  var list = (typeof workspace.windowList === "function")
+    ? workspace.windowList()
+    : workspace.clientList();
+  var found = false;
+  var x = 0, y = 0, w = 0, h = 0;
+  for (var i = 0; i < list.length; i++) {{
+    var win = list[i];
+    var id = (win.internalId || win.windowId || i).toString();
+    if (id === target) {{
+      var g = win.frameGeometry;
+      if (g) {{
+        x = (g.x | 0);
+        y = (g.y | 0);
+        w = (g.width | 0);
+        h = (g.height | 0);
+        found = true;
+      }}
+      break;
+    }}
+  }}
+  callDBus(
+    "{service}", "{path}", "{iface}", "ReportGeometry",
+    {id}, found, x, y, w, h
+  );
+}})();
+"#,
+        service = BRIDGE_SERVICE,
+        path = BRIDGE_PATH,
+        iface = BRIDGE_IFACE,
+        id = req_id,
+        target = js_string_literal(target_id)
     )
 }
 
@@ -470,6 +580,7 @@ impl Backend for KdeBackend {
         caps.activate_window = true;
         caps.close_window = true;
         caps.pointer_position = true;
+        caps.window_geometry = true;
         caps
     }
 
@@ -495,6 +606,10 @@ impl Backend for KdeBackend {
 
     async fn pointer_position(&self) -> Result<Option<(i32, i32)>> {
         self.pointer_position_impl().await
+    }
+
+    async fn window_geometry(&self, id: &WindowId) -> Result<Option<WindowGeometry>> {
+        self.window_geometry_impl(&id.0).await
     }
 
     async fn list_windows(&self) -> Result<Vec<WindowInfo>> {

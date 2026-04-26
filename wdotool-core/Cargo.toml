@@ -53,7 +53,7 @@ libc = { version = "0.2", optional = true }
 reis = { version = "0.6", features = ["tokio"], optional = true }
 rustix = { version = "1", features = ["fs"], optional = true }
 wayland-client = { version = "0.31", optional = true }
-wayland-protocols = { version = "0.32", features = ["client"], optional = true }
+wayland-protocols = { version = "0.32", features = ["client", "unstable"], optional = true }
 wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
 wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
 xkbcommon = { version = "0.9", features = ["wayland"], optional = true }

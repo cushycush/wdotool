@@ -49,7 +49,7 @@ This page is the honest table. If you are porting a script and the command you w
 | `getwindowname` | ✅ | Prints the title of a window by id. Pair with `wdotool search` to get an id |
 | `getwindowpid` | ✅ | Prints the PID of a window by id. Exits 1 if the backend can't resolve a PID for that window (some compositors don't expose it) |
 | `getwindowclassname` | ✅ | Prints the Wayland app_id of a window by id (the closest equivalent to X11's WM_CLASS classname). Exits 1 if no app_id is set |
-| `getwindowgeometry` | ❌ | Compositor-dependent; wlroots can do it through foreign-toplevel, KWin via scripting. Not built yet |
+| `getwindowgeometry` | 🧪 | KDE (kwin script reading `window.frameGeometry`) and GNOME (Shell extension calling `MetaWindow.get_frame_rect`) both implement it. wlroots' `zwlr_foreign_toplevel_management_v1` does not expose geometry, so the wlroots backend exits 1 with a clear message; libei and uinput likewise exit 1 |
 
 ## Selection / interactive UI
 
@@ -89,6 +89,7 @@ xdotool ships a few shell-helper commands that don't map cleanly to a Wayland to
 
 - `wdotool diag` and `wdotool diag --copy` for environment introspection and bug-report capture.
 - `wdotool capabilities` for structured (JSON) introspection of what this build supports. Schema at [`capabilities-schema.json`](capabilities-schema.json).
+- `wdotool outputs` (and `--json`) for monitor enumeration. Pair with `wdotool mousemove --output DP-1 100 100` to position the pointer in output-local coordinates instead of the global compositor space, which matters on multi-monitor setups. wlroots-only today; KDE / GNOME / libei still need their per-backend enumeration path wired up.
 - A library API (`wdotool-core` on crates.io) for embedding the engine in other Rust tools.
 - Per-backend Cargo features so library consumers can drop the backends they don't need (uinput especially, for sandboxed builds).
 - Portal `restore_token` caching so libei users don't see a consent dialog on every command.

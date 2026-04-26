@@ -113,6 +113,7 @@ pub struct Extras {
     pub record: RecordCaps,
     pub json_output: bool,
     pub pointer_position: bool,
+    pub window_geometry: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,7 +185,12 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
         },
         extras: Extras {
             diag: true,
-            outputs: false,
+            // Tracks `wdotool outputs` and `mousemove --output`.
+            // wlroots flips this to true; KDE / GNOME / libei / uinput
+            // emit false until each backend learns to enumerate
+            // outputs from its own source (kwin script / Shell
+            // extension / libei region / not-applicable).
+            outputs: caps.list_outputs,
             record: RecordCaps {
                 supported: false,
                 source: None,
@@ -196,6 +202,13 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
             // backend's `pointer_position` capability bit, so KDE +
             // GNOME emit `true`, libei / wlroots / uinput emit `false`.
             pointer_position: caps.pointer_position,
+            // Tracks `wdotool getwindowgeometry`. KDE (kwin script
+            // reading window.frameGeometry) and GNOME (Shell extension
+            // calling MetaWindow.get_frame_rect) emit `true`. wlroots
+            // emits `false` because foreign-toplevel doesn't expose
+            // geometry; libei and uinput have no window concept at
+            // all.
+            window_geometry: caps.window_geometry,
         },
         platform: PlatformInfo {
             desktop: env.desktop.clone(),
@@ -277,6 +290,8 @@ mod tests {
                 activate_window: true,
                 close_window: true,
                 pointer_position: true,
+                list_outputs: true,
+                window_geometry: true,
             }
         }
         async fn key(&self, _: &str, _: KeyDirection) -> Result<()> {
@@ -333,13 +348,19 @@ mod tests {
             vec![MatchBy::Title, MatchBy::AppId, MatchBy::Pid]
         );
         assert!(r.extras.diag);
-        assert!(!r.extras.outputs);
+        // FakeBackend sets list_outputs=true, so the report flips
+        // extras.outputs to true. A real libei backend would emit
+        // false here (libei has device regions but no name mapping).
+        assert!(r.extras.outputs);
         assert!(!r.extras.record.supported);
         assert!(r.extras.record.source.is_none());
         assert!(r.extras.json_output);
         // FakeBackend in this test sets pointer_position=true, so the
         // report should pass it through. Real libei would emit false.
         assert!(r.extras.pointer_position);
+        // Same for window_geometry. KDE and GNOME emit true; libei,
+        // wlroots, and uinput emit false.
+        assert!(r.extras.window_geometry);
         assert_eq!(r.platform.desktop.as_deref(), Some("GNOME"));
     }
 

@@ -10,7 +10,9 @@ use regex::Regex;
 
 use wdotool_core::detector::{self, BackendKind, Environment};
 use wdotool_core::keysym;
-use wdotool_core::{Backend, KeyDirection, MouseButton, Result, WdoError, WindowId, WindowInfo};
+use wdotool_core::{
+    Backend, KeyDirection, MouseButton, Result, WdoError, WindowGeometry, WindowId, WindowInfo,
+};
 
 use cli::{Cli, Command};
 
@@ -78,6 +80,8 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
             println!("  activate_window:       {}", caps.activate_window);
             println!("  close_window:          {}", caps.close_window);
             println!("  pointer_position:      {}", caps.pointer_position);
+            println!("  list_outputs:          {}", caps.list_outputs);
+            println!("  window_geometry:       {}", caps.window_geometry);
         }
         Command::Key {
             clearmodifiers,
@@ -120,8 +124,37 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
                 .type_text(&resolved, Duration::from_millis(delay))
                 .await?;
         }
-        Command::Mousemove { relative, x, y } => {
-            backend.mouse_move(x, y, !relative).await?;
+        Command::Mousemove {
+            relative,
+            output,
+            x,
+            y,
+        } => {
+            // --output translates output-local coordinates to global
+            // before calling mouse_move_absolute. clap already rejects
+            // --output combined with --relative.
+            let (target_x, target_y) = match output {
+                Some(name) => {
+                    let outputs = backend.list_outputs().await?;
+                    if outputs.is_empty() {
+                        return Err(WdoError::InvalidArg(format!(
+                            "--output not supported: the {} backend does not enumerate outputs",
+                            backend.name()
+                        )));
+                    }
+                    let target = outputs.iter().find(|o| o.name == name).ok_or_else(|| {
+                        let available: Vec<&str> =
+                            outputs.iter().map(|o| o.name.as_str()).collect();
+                        WdoError::InvalidArg(format!(
+                            "no output named {name:?}; available: {}",
+                            available.join(", ")
+                        ))
+                    })?;
+                    (target.x + x, target.y + y)
+                }
+                None => (x, y),
+            };
+            backend.mouse_move(target_x, target_y, !relative).await?;
         }
         Command::Click { button } => {
             backend
@@ -174,6 +207,40 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
             Some(w) => println!("{}", w.id),
             None => return Err(WdoError::WindowNotFound("active".into())),
         },
+        Command::Outputs { json } => {
+            let outputs = backend.list_outputs().await?;
+            if json {
+                let value = serde_json::to_value(
+                    outputs
+                        .iter()
+                        .map(|o| {
+                            serde_json::json!({
+                                "name": o.name,
+                                "x": o.x,
+                                "y": o.y,
+                                "width": o.width,
+                                "height": o.height,
+                                "scale": o.scale,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|e| WdoError::InvalidArg(format!("outputs serialization: {e}")))?;
+                let pretty = serde_json::to_string_pretty(&value)
+                    .map_err(|e| WdoError::InvalidArg(format!("outputs serialization: {e}")))?;
+                println!("{pretty}");
+            } else {
+                // Tab-separated, header row first. Mirrors `wdotool search`'s
+                // shape so shell scripts can `awk -F'\t'` on either.
+                println!("name\tx\ty\twidth\theight\tscale");
+                for o in &outputs {
+                    println!(
+                        "{}\t{}\t{}\t{}\t{}\t{}",
+                        o.name, o.x, o.y, o.width, o.height, o.scale
+                    );
+                }
+            }
+        }
         Command::Getmouselocation => match backend.pointer_position().await? {
             Some((x, y)) => println!("x:{x} y:{y}"),
             None => {
@@ -208,6 +275,40 @@ async fn dispatch(backend: &dyn Backend, env: &Environment, cmd: Command) -> Res
                 Some(app_id) => println!("{app_id}"),
                 None => {
                     eprintln!("wdotool: classname (app_id) not available for window {id}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Command::Getwindowgeometry { id } => {
+            // Trait contract:
+            //   Ok(Some(geom)) -> backend supports it, found, here it is
+            //   Err(WindowNotFound) -> backend supports it, but no
+            //                          window with that id
+            //   Ok(None) -> backend doesn't support reading geometry
+            // The error path bubbles via `?` so we only handle
+            // Ok(Some) and Ok(None) explicitly here.
+            match backend.window_geometry(&WindowId(id.clone())).await? {
+                Some(WindowGeometry {
+                    x,
+                    y,
+                    width,
+                    height,
+                }) => {
+                    // Match xdotool's default format. The "screen"
+                    // line xdotool prints doesn't translate to Wayland
+                    // (compositors don't expose a stable screen index
+                    // that's meaningful to clients), so we drop it.
+                    println!("Window {id}");
+                    println!("  Position: {x},{y}");
+                    println!("  Geometry: {width}x{height}");
+                }
+                None => {
+                    eprintln!(
+                        "wdotool: window geometry is unreadable on the {} backend (no Wayland \
+                         protocol exposes window geometry to other clients). Use the kde or \
+                         gnome backend.",
+                        backend.name()
+                    );
                     std::process::exit(1);
                 }
             }

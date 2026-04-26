@@ -20,7 +20,7 @@ use zbus::{proxy, Connection};
 use super::libei::LibeiBackend;
 use super::Backend;
 use crate::error::{Result, WdoError};
-use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo};
+use crate::types::{Capabilities, KeyDirection, MouseButton, WindowGeometry, WindowId, WindowInfo};
 
 const NAME: &str = "gnome-ext";
 
@@ -40,6 +40,8 @@ trait Bridge {
     fn close_window(&self, id: &str) -> zbus::Result<bool>;
     #[zbus(name = "GetPointerPosition")]
     fn get_pointer_position(&self) -> zbus::Result<(i32, i32)>;
+    #[zbus(name = "GetWindowGeometry")]
+    fn get_window_geometry(&self, id: &str) -> zbus::Result<(bool, i32, i32, i32, i32)>;
 }
 
 pub struct GnomeExtBackend {
@@ -140,6 +142,7 @@ impl Backend for GnomeExtBackend {
         caps.activate_window = true;
         caps.close_window = true;
         caps.pointer_position = true;
+        caps.window_geometry = true;
         caps
     }
 
@@ -204,5 +207,22 @@ impl Backend for GnomeExtBackend {
     async fn pointer_position(&self) -> Result<Option<(i32, i32)>> {
         let (x, y) = self.proxy.get_pointer_position().await.map_err(dbus_err)?;
         Ok(Some((x, y)))
+    }
+
+    async fn window_geometry(&self, id: &WindowId) -> Result<Option<WindowGeometry>> {
+        let (found, x, y, width, height) = self
+            .proxy
+            .get_window_geometry(&id.0)
+            .await
+            .map_err(dbus_err)?;
+        if !found {
+            return Err(WdoError::WindowNotFound(id.0.clone()));
+        }
+        Ok(Some(WindowGeometry {
+            x,
+            y,
+            width: width.max(0) as u32,
+            height: height.max(0) as u32,
+        }))
     }
 }
