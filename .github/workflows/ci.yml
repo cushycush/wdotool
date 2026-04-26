@@ -48,6 +48,30 @@ jobs:
       - name: cargo test
         run: cargo test --all-targets --locked
 
+  npm-capabilities:
+    name: npm package (@wdotool/capabilities)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: packaging/npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packaging/npm/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build + test
+        # `npm test` runs the sync script, tsc, then node --test. If the
+        # JSON schema in docs/ drifts from the locked enums in src/types.ts,
+        # the schema-vs-types tests fail here.
+        run: npm test
+
   # TODO(integration): boot wdotool under a headless wlroots compositor.
   # First attempt used `cage` from Ubuntu 22.04 (0.1.4), which exited code
   # 1 with no output under WLR_BACKENDS=headless on a GitHub runner — not
