@@ -66,6 +66,13 @@ pub enum Command {
     Mousemove {
         #[arg(long)]
         relative: bool,
+        /// Treat (x, y) as relative to this output's origin instead of
+        /// the global compositor coordinate space. Use the name from
+        /// `wdotool outputs` (e.g. `DP-1`, `HDMI-A-1`). Conflicts with
+        /// `--relative`. Currently only the wlroots backend enumerates
+        /// outputs; other backends error if you pass `--output`.
+        #[arg(long, conflicts_with = "relative")]
+        output: Option<String>,
         x: i32,
         y: i32,
     },
@@ -129,6 +136,16 @@ pub enum Command {
     /// default format). Exits 1 on backends that can't read pointer
     /// position (libei, wlroots, uinput); KDE and GNOME both can.
     Getmouselocation,
+
+    /// List the compositor's outputs (monitors). One row per output:
+    /// name, x, y, width, height, scale. Pass `--json` for structured
+    /// output. Currently only the wlroots backend enumerates outputs;
+    /// others exit 0 with empty output.
+    Outputs {
+        /// Emit JSON instead of the default tab-separated table.
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Activate (raise + focus) a window by id.
     Windowactivate { id: String },

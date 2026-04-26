@@ -184,7 +184,12 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
         },
         extras: Extras {
             diag: true,
-            outputs: false,
+            // Tracks `wdotool outputs` and `mousemove --output`.
+            // wlroots flips this to true; KDE / GNOME / libei / uinput
+            // emit false until each backend learns to enumerate
+            // outputs from its own source (kwin script / Shell
+            // extension / libei region / not-applicable).
+            outputs: caps.list_outputs,
             record: RecordCaps {
                 supported: false,
                 source: None,
@@ -277,6 +282,7 @@ mod tests {
                 activate_window: true,
                 close_window: true,
                 pointer_position: true,
+                list_outputs: true,
             }
         }
         async fn key(&self, _: &str, _: KeyDirection) -> Result<()> {
@@ -333,7 +339,10 @@ mod tests {
             vec![MatchBy::Title, MatchBy::AppId, MatchBy::Pid]
         );
         assert!(r.extras.diag);
-        assert!(!r.extras.outputs);
+        // FakeBackend sets list_outputs=true, so the report flips
+        // extras.outputs to true. A real libei backend would emit
+        // false here (libei has device regions but no name mapping).
+        assert!(r.extras.outputs);
         assert!(!r.extras.record.supported);
         assert!(r.extras.record.source.is_none());
         assert!(r.extras.json_output);
