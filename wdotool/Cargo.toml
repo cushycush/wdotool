@@ -11,6 +11,10 @@ readme = "../README.md"
 keywords = ["wayland", "xdotool", "automation", "input", "libei"]
 categories = ["command-line-utilities", "os::linux-apis"]
 
+[lib]
+name = "wdotool"
+path = "src/lib.rs"
+
 [[bin]]
 name = "wdotool"
 path = "src/main.rs"
