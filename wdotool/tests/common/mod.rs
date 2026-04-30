@@ -17,7 +17,10 @@ use wdotool_core::backend::mock::{BackendCall, MockBackend};
 use wdotool_core::detector::Environment;
 use wdotool_core::{Result as WdoResult, WdoError};
 
-/// Outcome of a single `dispatch` run against the mock.
+/// Outcome of a single `dispatch` run against the mock. Each
+/// integration test file picks the fields it cares about, so the
+/// dead-code allow keeps the suite quiet across the lot.
+#[allow(dead_code)]
 pub struct RunResult {
     pub exit: ExitCode,
     pub error: Option<WdoError>,

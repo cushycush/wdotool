@@ -63,6 +63,7 @@ pub enum Command {
     },
 
     /// Move the mouse to (x, y) or by (dx, dy) with --relative.
+    #[command(allow_negative_numbers = true)]
     Mousemove {
         #[arg(long)]
         relative: bool,
@@ -87,6 +88,7 @@ pub enum Command {
     Mouseup { button: u32 },
 
     /// Scroll. Positive dy scrolls down; positive dx scrolls right.
+    #[command(allow_negative_numbers = true)]
     Scroll { dx: f64, dy: f64 },
 
     /// List windows matching the filters. With no filter, lists all
