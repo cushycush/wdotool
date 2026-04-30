@@ -51,18 +51,17 @@ async fn main() -> anyhow::Result<()> {
 
     let backend = detector::build(&env, forced).await?;
 
-    let mut stdout = std::io::stdout().lock();
-    let mut stderr = std::io::stderr().lock();
-    let mut ctx = DispatchCtx {
-        backend: &*backend,
-        env: &env,
-        stdout: &mut stdout,
-        stderr: &mut stderr,
+    let exit = {
+        let mut stdout = std::io::stdout().lock();
+        let mut stderr = std::io::stderr().lock();
+        let mut ctx = DispatchCtx {
+            backend: &*backend,
+            env: &env,
+            stdout: &mut stdout,
+            stderr: &mut stderr,
+        };
+        wdotool::dispatch(&mut ctx, cli.command).await?
     };
-    let exit = wdotool::dispatch(&mut ctx, cli.command).await?;
-    drop(ctx);
-    drop(stdout);
-    drop(stderr);
     if exit != ExitCode::SUCCESS {
         std::process::exit(exit.0);
     }

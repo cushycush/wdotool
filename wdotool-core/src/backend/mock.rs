@@ -68,6 +68,7 @@ pub enum BackendCall {
 /// method invokes this to get a fresh error.
 type ErrorFactory = Arc<dyn Fn() -> WdoError + Send + Sync>;
 
+#[derive(Default)]
 struct Inner {
     calls: Vec<BackendCall>,
     windows: Vec<WindowInfo>,
@@ -76,20 +77,6 @@ struct Inner {
     outputs: Vec<OutputInfo>,
     geometries: HashMap<String, WindowGeometry>,
     fail: Option<ErrorFactory>,
-}
-
-impl Default for Inner {
-    fn default() -> Self {
-        Self {
-            calls: Vec::new(),
-            windows: Vec::new(),
-            active: None,
-            pointer: None,
-            outputs: Vec::new(),
-            geometries: HashMap::new(),
-            fail: None,
-        }
-    }
 }
 
 /// In-memory [`Backend`] that records every call. Cheap to clone — the

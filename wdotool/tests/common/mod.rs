@@ -40,7 +40,7 @@ pub async fn run(argv: &[&str]) -> RunResult {
 /// windows / pointer / outputs / forced failures) and the environment.
 pub async fn run_with(argv: &[&str], mock: MockBackend, env: Environment) -> RunResult {
     let mock = Arc::new(mock);
-    let argv_owned: Vec<String> = if argv.first().map(|s| *s) == Some("wdotool") {
+    let argv_owned: Vec<String> = if argv.first().copied() == Some("wdotool") {
         argv.iter().map(|s| s.to_string()).collect()
     } else {
         std::iter::once("wdotool".to_string())
