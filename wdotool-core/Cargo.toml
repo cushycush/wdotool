@@ -45,6 +45,11 @@ recorder = [
     "dep:reis",
     "dep:tokio-stream",
 ]
+# Compiles in `backend::mock::MockBackend`, an in-memory Backend that
+# records every call. Used by `wdotool`'s integration tests and exposed
+# so downstream consumers of the Backend trait (wflows.com) don't have
+# to re-derive the same harness.
+testing = []
 
 [dependencies]
 # Always-on. serde + serde_json are always-on because the public
