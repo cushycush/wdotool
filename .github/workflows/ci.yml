@@ -116,6 +116,11 @@ jobs:
         # have no GPU / DRM device, so wlroots' default GBM/EGL path
         # won't initialize. Pixman is fine for headless: we never
         # actually render anything visible.
+        #
+        # --test-threads=1 serializes the suite. Each test starts its
+        # own sway compositor; running 4 in parallel on a 2-core CI
+        # runner has them fighting for CPU and the wait_for_ready
+        # timeouts trip. Serial is ~5s per test, ~20s total — fine.
         env:
           WLR_RENDERER: pixman
-        run: cargo test -p wdotool --test cli_roundtrip --locked
+        run: cargo test -p wdotool --test cli_roundtrip --locked -- --test-threads=1

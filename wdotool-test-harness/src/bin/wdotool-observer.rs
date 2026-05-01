@@ -444,11 +444,21 @@ mod linux_main {
         ) {
             match event {
                 wl_keyboard::Event::Keymap { format, fd, size } => {
+                    // Log the format we received so a CI failure with
+                    // missing keymap_changed events leaves a trail.
+                    let format_label = match format {
+                        WEnum::Value(wl_keyboard::KeymapFormat::XkbV1) => "xkb_v1",
+                        WEnum::Value(wl_keyboard::KeymapFormat::NoKeymap) => "no_keymap",
+                        _ => "unknown",
+                    };
+                    println!("keymap_received {format_label} {size}");
+                    std::io::stdout().flush().ok();
+
                     if matches!(format, WEnum::Value(wl_keyboard::KeymapFormat::XkbV1)) {
                         // SAFETY: the compositor sent us a freshly-mmappable fd
                         // describing an xkb v1 keymap. xkbcommon's
                         // new_from_fd takes ownership and mmaps it.
-                        if let Ok(Some(keymap)) = unsafe {
+                        match unsafe {
                             xkb::Keymap::new_from_fd(
                                 &state.xkb_context,
                                 fd,
@@ -457,11 +467,21 @@ mod linux_main {
                                 xkb::KEYMAP_COMPILE_NO_FLAGS,
                             )
                         } {
-                            let xkb_state = xkb::State::new(&keymap);
-                            state.xkb_keymap = Some(keymap);
-                            state.xkb_state = Some(xkb_state);
-                            println!("keymap_changed");
-                            std::io::stdout().flush().ok();
+                            Ok(Some(keymap)) => {
+                                let xkb_state = xkb::State::new(&keymap);
+                                state.xkb_keymap = Some(keymap);
+                                state.xkb_state = Some(xkb_state);
+                                println!("keymap_changed");
+                                std::io::stdout().flush().ok();
+                            }
+                            Ok(None) => {
+                                println!("keymap_parse_returned_none");
+                                std::io::stdout().flush().ok();
+                            }
+                            Err(e) => {
+                                println!("keymap_parse_failed {e:?}");
+                                std::io::stdout().flush().ok();
+                            }
                         }
                     }
                 }
