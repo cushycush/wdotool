@@ -224,4 +224,16 @@ pub enum Command {
         #[arg(long, default_value = "auto")]
         backend: String,
     },
+
+    /// Hold the wlroots virtual_keyboard + virtual_pointer alive in
+    /// the foreground. Prints `ready` to stdout once devices are up,
+    /// then blocks until SIGINT (Ctrl-C) or SIGTERM. Useful for two
+    /// things: keeping the seat's pointer / keyboard capability up
+    /// across multiple wdotool invocations (the Layer 3 round-trip
+    /// suite needs this so its observer client stays bound), and
+    /// reducing per-call latency for scripts that send many
+    /// successive ops (no need to recreate virtual devices each
+    /// time). Only the wlroots backend has long-lived virtual
+    /// devices; this command always picks it.
+    Prime,
 }

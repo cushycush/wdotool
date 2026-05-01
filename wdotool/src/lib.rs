@@ -385,6 +385,12 @@ pub async fn dispatch(ctx: &mut DispatchCtx<'_>, cmd: Command) -> Result<ExitCod
             // recorder owns its own portal session.
             unreachable!("Record short-circuits before dispatch");
         }
+        Command::Prime => {
+            // Same pattern: prime needs to hold the backend alive in
+            // the foreground until a signal, so main() bypasses
+            // dispatch and runs its own loop.
+            unreachable!("Prime short-circuits before dispatch");
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

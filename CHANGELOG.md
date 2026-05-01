@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `wdotool record [--output FILE] [--max-duration SEC] [--backend portal|evdev|simulated|auto]` captures user input until Ctrl-C (or the duration elapses) and writes the events as JSON. Built on the `wdotool_core::recorder` module that shipped in v0.4.0; behind the same `recorder` Cargo feature (default-on for the released binary). Default output is stdout; pass `-o trace.json` for a file. The `auto` backend cascades portal → evdev. Capabilities schema's `extras.record.supported` flips to `true` when the binary was built with the recorder feature; `source` stays `null` because the runtime cascade decides between portal and evdev when the recording starts. The new replay command (consuming a captured trace and dispatching through the existing `Backend` trait) is a separate follow-up.
+- `wdotool prime` is a long-running foreground command that creates and holds the wlroots `virtual_keyboard` + `virtual_pointer` alive on the compositor's seat until SIGINT or SIGTERM. Prints `ready` to stdout once the devices are up, then blocks. Two payoffs: scripts running many wdotool ops in sequence avoid per-call virtual-device creation latency, and integration test harnesses get a stable seat-cap that observer clients can bind to without race. Always uses the wlroots backend, since it's the only one with long-lived virtual devices to hold.
+
+### Fixed
+- wlroots backend: every input op (`do_key`, `do_type_text`, `do_mouse_move`, `do_mouse_button`, `do_scroll`) now does a `queue.roundtrip()` after sending its protocol messages, before returning to the caller. Without this, a fast wdotool process could exit and destroy its virtual devices before the compositor had finished processing the in-flight events, silently dropping them. Caught by the new Layer 3 round-trip integration tests against headless sway.
 
 ## [0.4.0] — 2026-04-26
 

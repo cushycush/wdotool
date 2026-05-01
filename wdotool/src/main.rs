@@ -40,6 +40,26 @@ async fn main() -> anyhow::Result<()> {
 
     let env = Environment::detect();
 
+    // Prime short-circuits the dispatch loop so it can hold the
+    // wlroots backend alive in the foreground until a signal arrives.
+    // We always pick wlroots regardless of cli.backend because that's
+    // the only backend whose devices live across calls.
+    if let Command::Prime = cli.command {
+        let backend = detector::build(&env, Some(BackendKind::Wlroots)).await?;
+        // Stdout is the readiness signal for any test harness (or
+        // human) waiting on us. Flush so the `ready` line lands
+        // before this process blocks on the signal handler.
+        println!("ready");
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+        // Block until Ctrl-C or SIGTERM. Both end the wait the same
+        // way; the backend (and its virtual devices) gets dropped
+        // when this function returns, which cleanly releases the
+        // devices in the compositor.
+        tokio::signal::ctrl_c().await?;
+        drop(backend);
+        return Ok(());
+    }
+
     let forced = match cli.backend.as_deref() {
         Some(s) => Some(BackendKind::parse(s).ok_or_else(|| {
             WdoError::InvalidArg(format!(

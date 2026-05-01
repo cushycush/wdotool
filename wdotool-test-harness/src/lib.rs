@@ -41,7 +41,7 @@ use tempfile::TempDir;
 static SESSION_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Top-level error type. Tests pattern-match on the variants so
-/// "sway is not installed" gets turned into a skip rather than a
+/// "compositor is not installed" gets turned into a skip rather than a
 /// failure.
 #[derive(Debug)]
 pub enum HarnessError {
@@ -216,47 +216,13 @@ impl HeadlessSway {
     /// and [`run_wdotool`](Self::run_wdotool); call manually for any
     /// additional child you spawn yourself.
     pub fn apply_env(&self, cmd: &mut Command) {
-        cmd.env("XDG_RUNTIME_DIR", self.runtime_dir.path());
-        cmd.env("WAYLAND_DISPLAY", &self.display_name);
-        // Strip a potentially conflicting parent session.
-        cmd.env_remove("DISPLAY");
-        cmd.env_remove("WAYLAND_SOCKET");
+        apply_env_to(cmd, self.runtime_dir.path(), &self.display_name);
     }
 
     /// Spawn the `wdotool-observer` binary inside this compositor and
     /// return a handle to read its event stream.
     pub fn spawn_observer(&self) -> Result<Observer, HarnessError> {
-        // Cargo populates CARGO_BIN_EXE_<name> for integration tests.
-        // For non-test callers (e.g. a debug script), fall back to
-        // looking for the binary next to the current exe.
-        let bin = std::env::var_os("CARGO_BIN_EXE_wdotool-observer")
-            .map(PathBuf::from)
-            .or_else(default_observer_path)
-            .ok_or_else(|| {
-                HarnessError::SpawnFailed(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "could not locate wdotool-observer binary",
-                ))
-            })?;
-
-        let mut cmd = Command::new(bin);
-        self.apply_env(&mut cmd);
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        let mut child = cmd.spawn().map_err(HarnessError::SpawnFailed)?;
-
-        let stdout = child.stdout.take().expect("piped");
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines().map_while(Result::ok) {
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
-
-        Ok(Observer { child, lines: rx })
+        spawn_observer_with(self.runtime_dir.path(), &self.display_name)
     }
 
     /// Run `wdotool <args>` against this compositor, forcing the
@@ -265,6 +231,16 @@ impl HeadlessSway {
     /// completed [`std::process::Output`] so tests can assert on
     /// stdout, stderr, and exit status.
     pub fn run_wdotool(&self, args: &[&str]) -> Result<std::process::Output, HarnessError> {
+        run_wdotool_with(self.runtime_dir.path(), &self.display_name, args)
+    }
+
+    /// Spawn `wdotool prime` against this compositor. The returned
+    /// [`Prime`] handle holds the wlroots virtual_keyboard +
+    /// virtual_pointer alive until dropped (which sends SIGTERM and
+    /// waits for clean release). Blocks until prime prints `ready` to
+    /// stdout, so the caller knows the seat caps are up before it
+    /// proceeds.
+    pub fn spawn_prime(&self) -> Result<Prime, HarnessError> {
         let bin = std::env::var_os("CARGO_BIN_EXE_wdotool")
             .map(PathBuf::from)
             .or_else(default_wdotool_path)
@@ -277,12 +253,43 @@ impl HeadlessSway {
 
         let mut cmd = Command::new(bin);
         self.apply_env(&mut cmd);
-        cmd.args(["--backend", "wlroots"]);
-        cmd.args(args);
+        cmd.args(["--backend", "wlroots", "prime"]);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-        let output = cmd.output().map_err(HarnessError::SpawnFailed)?;
-        Ok(output)
+        let mut child = cmd.spawn().map_err(HarnessError::SpawnFailed)?;
+
+        // Block until prime prints `ready` (or it dies). 5s budget;
+        // prime is essentially as fast as any wdotool invocation
+        // because it just builds the wlroots backend and prints.
+        let stdout = child.stdout.take().expect("piped");
+        let mut reader = BufReader::new(stdout);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => {
+                    return Err(HarnessError::SpawnFailed(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "prime exited before printing ready",
+                    )))
+                }
+                Ok(_) => {
+                    if line.trim() == "ready" {
+                        return Ok(Prime { child });
+                    }
+                }
+                Err(_) if Instant::now() > deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(HarnessError::SpawnFailed(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "timed out waiting for `wdotool prime` to print ready",
+                    )));
+                }
+                Err(_) => continue,
+            }
+        }
     }
 }
 
@@ -291,6 +298,97 @@ impl Drop for HeadlessSway {
         let _ = self.sway.kill();
         let _ = self.sway.wait();
     }
+}
+
+/// Handle to a running `wdotool prime` subprocess. While alive, the
+/// wlroots virtual_keyboard + virtual_pointer stay registered on the
+/// compositor's seat, so observer clients in the same session keep
+/// the keyboard/pointer cap visible without having to rebind on every
+/// transient `wdotool` invocation. Drop sends SIGTERM and waits.
+pub struct Prime {
+    child: Child,
+}
+
+impl Drop for Prime {
+    fn drop(&mut self) {
+        // Try a polite SIGTERM first via libc::kill; fall back to
+        // Child::kill (SIGKILL) if that fails. Either way we wait
+        // before returning so the compositor sees the device removal.
+        unsafe {
+            libc::kill(self.child.id() as i32, libc::SIGTERM);
+        }
+        // Give it a beat to clean up; then make sure it's gone.
+        let _ = self.child.wait();
+    }
+}
+
+// ============================================================
+// Helpers shared between the compositor runner's instance methods.
+// Lifted out of `impl HeadlessSway` so additional runners can call
+// the same machinery without copy-pasting; right now sway is the
+// only target (weston dropped due to missing zwlr_virtual_pointer).
+// ============================================================
+
+fn apply_env_to(cmd: &mut Command, runtime_dir: &Path, display: &str) {
+    cmd.env("XDG_RUNTIME_DIR", runtime_dir);
+    cmd.env("WAYLAND_DISPLAY", display);
+    cmd.env_remove("DISPLAY");
+    cmd.env_remove("WAYLAND_SOCKET");
+}
+
+fn spawn_observer_with(runtime_dir: &Path, display: &str) -> Result<Observer, HarnessError> {
+    let bin = std::env::var_os("CARGO_BIN_EXE_wdotool-observer")
+        .map(PathBuf::from)
+        .or_else(default_observer_path)
+        .ok_or_else(|| {
+            HarnessError::SpawnFailed(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "could not locate wdotool-observer binary",
+            ))
+        })?;
+
+    let mut cmd = Command::new(bin);
+    apply_env_to(&mut cmd, runtime_dir, display);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(HarnessError::SpawnFailed)?;
+
+    let stdout = child.stdout.take().expect("piped");
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    Ok(Observer { child, lines: rx })
+}
+
+fn run_wdotool_with(
+    runtime_dir: &Path,
+    display: &str,
+    args: &[&str],
+) -> Result<std::process::Output, HarnessError> {
+    let bin = std::env::var_os("CARGO_BIN_EXE_wdotool")
+        .map(PathBuf::from)
+        .or_else(default_wdotool_path)
+        .ok_or_else(|| {
+            HarnessError::SpawnFailed(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "could not locate wdotool binary",
+            ))
+        })?;
+
+    let mut cmd = Command::new(bin);
+    apply_env_to(&mut cmd, runtime_dir, display);
+    cmd.args(["--backend", "wlroots"]);
+    cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.output().map_err(HarnessError::SpawnFailed)
 }
 
 /// Knobs for [`HeadlessSway::start_with`]. Defaults are the right
