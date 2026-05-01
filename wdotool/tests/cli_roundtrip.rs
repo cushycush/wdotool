@@ -161,6 +161,98 @@ fn prime_keeps_seat_capabilities_up_across_calls() {
 }
 
 // ============================================================
+// Replay: JSON trace -> backend dispatch -> real compositor.
+// ============================================================
+
+#[test]
+fn replay_keyboard_trace_round_trips_to_observer() {
+    // Hand-write a small trace with keyboard events, replay it
+    // against headless sway, and assert each chord arrives at the
+    // observer in the right order. Pointer / scroll events from the
+    // simulated recorder script are excluded because the
+    // sway-headless cursor pipeline doesn't deliver them (see the
+    // file header further down). This test specifically pins the
+    // JSON -> dispatch -> real-compositor flow, complementing
+    // cli_replay.rs's mock-backend coverage of the dispatch contract.
+    use std::io::Write as _;
+    let Some((sway, observer, _guard)) = fresh_session() else {
+        return;
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let trace_path = dir.path().join("trace.json");
+    let mut f = std::fs::File::create(&trace_path).unwrap();
+    f.write_all(
+        br#"[
+            {"kind":"key","t_ms":0,"chord":"a"},
+            {"kind":"gap","t_ms":1,"ms":10},
+            {"kind":"key","t_ms":11,"chord":"ctrl+l"},
+            {"kind":"gap","t_ms":12,"ms":10},
+            {"kind":"key","t_ms":22,"chord":"Return"}
+        ]"#,
+    )
+    .unwrap();
+    drop(f);
+
+    let out = sway
+        .run_wdotool(&["replay", trace_path.to_str().unwrap()])
+        .expect("run wdotool");
+    assert!(out.status.success(), "wdotool replay failed: {out:?}");
+
+    let events = observer.collect_events(Duration::from_millis(400));
+    let keys = lines_starting_with(&events, "key ");
+
+    // Expected backend calls per replay's dispatch logic for the
+    // chords above:
+    //   "a"        -> press(a), release(a)                  [2]
+    //   "ctrl+l"   -> press(Ctrl), pr(l), release(Ctrl)     [3 lines, 4 events]
+    //   "Return"   -> press(Return), release(Return)        [2]
+    // ctrl+l yields a press+release pair around the Ctrl modifier,
+    // so the observer sees:
+    //   press a, release a,
+    //   press Ctrl, press l, release l, release Ctrl,
+    //   press Return, release Return
+    // Eight key events total; pin the count and the keycode
+    // sequence (using evdev keycodes for the same xkb-may-fail
+    // robustness as the other keyboard tests in this file).
+    const KEY_L: u32 = 38;
+    const KEY_RETURN: u32 = 28;
+    let parsed: Vec<(u32, &str, &str)> = keys
+        .iter()
+        .map(|l| parse_key_line(l).unwrap_or_else(|| panic!("parse {l:?}")))
+        .collect();
+    let expected = [
+        (KEY_A, "press"),
+        (KEY_A, "release"),
+        (KEY_LEFTCTRL, "press"),
+        (KEY_L, "press"),
+        (KEY_L, "release"),
+        (KEY_LEFTCTRL, "release"),
+        (KEY_RETURN, "press"),
+        (KEY_RETURN, "release"),
+    ];
+    assert_eq!(
+        parsed.len(),
+        expected.len(),
+        "expected {} key events, got {}: {events:?}",
+        expected.len(),
+        parsed.len()
+    );
+    for (i, (exp_kc, exp_act)) in expected.iter().enumerate() {
+        assert_eq!(
+            parsed[i].0, *exp_kc,
+            "keys[{i}] keycode mismatch: {}",
+            keys[i]
+        );
+        assert_eq!(
+            parsed[i].2, *exp_act,
+            "keys[{i}] action mismatch: {}",
+            keys[i]
+        );
+    }
+}
+
+// ============================================================
 // Keyboard: key, keydown/keyup, modifier ordering, type.
 // ============================================================
 
