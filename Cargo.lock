@@ -1377,6 +1377,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wdotool-test-harness"
+version = "0.4.0"
+dependencies = [
+ "rustix",
+ "wayland-client",
+ "wayland-protocols",
+ "xkbcommon",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

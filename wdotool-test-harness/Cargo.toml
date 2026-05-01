@@ -1,0 +1,24 @@
+[package]
+name = "wdotool-test-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Wayland input observer for wdotool integration tests. Connects to a compositor, takes the seat, and writes one line per received input event to stdout. Test code drives wdotool against a headless compositor running this observer and asserts on the captured stream. Not published; workspace-internal."
+publish = false
+
+[[bin]]
+name = "wdotool-observer"
+path = "src/main.rs"
+
+# The harness only makes sense on Linux (Wayland clients). Other
+# platforms can build the workspace fine because Cargo's target
+# resolution skips this crate's deps when the OS doesn't match.
+[target.'cfg(target_os = "linux")'.dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+xkbcommon = "0.9"
+# rustix for the shm-buffer fd dance. wdotool-core already pulls it in
+# under the wlroots feature, so the workspace cache stays warm.
+rustix = { version = "1", features = ["fs", "shm"] }
