@@ -54,13 +54,6 @@ pub enum HarnessError {
     SwayStartTimeout,
     /// Sway exited before becoming ready. Stderr is captured.
     SwayExitedEarly { stderr: String },
-    /// `weston` is not on PATH. Same skip-the-test treatment as
-    /// `SwayUnavailable`.
-    WestonUnavailable(std::io::Error),
-    /// Weston started but never created a socket inside the timeout.
-    WestonStartTimeout,
-    /// Weston exited before becoming ready. Stderr is captured.
-    WestonExitedEarly { stderr: String },
     /// Spawn failure for `wdotool-observer` or `wdotool` itself.
     SpawnFailed(std::io::Error),
     /// Observer never emitted `ready` within the timeout.
@@ -81,16 +74,6 @@ impl std::fmt::Display for HarnessError {
             }
             Self::SwayExitedEarly { stderr } => {
                 write!(f, "sway exited before becoming ready. stderr: {stderr}")
-            }
-            Self::WestonUnavailable(e) => {
-                write!(f, "weston is not available (install weston): {e}")
-            }
-            Self::WestonStartTimeout => write!(
-                f,
-                "weston did not create its socket within the start timeout"
-            ),
-            Self::WestonExitedEarly { stderr } => {
-                write!(f, "weston exited before becoming ready. stderr: {stderr}")
             }
             Self::SpawnFailed(e) => write!(f, "failed to spawn child process: {e}"),
             Self::ObserverNotReady => write!(f, "observer did not become ready within timeout"),
@@ -250,6 +233,64 @@ impl HeadlessSway {
     pub fn run_wdotool(&self, args: &[&str]) -> Result<std::process::Output, HarnessError> {
         run_wdotool_with(self.runtime_dir.path(), &self.display_name, args)
     }
+
+    /// Spawn `wdotool prime` against this compositor. The returned
+    /// [`Prime`] handle holds the wlroots virtual_keyboard +
+    /// virtual_pointer alive until dropped (which sends SIGTERM and
+    /// waits for clean release). Blocks until prime prints `ready` to
+    /// stdout, so the caller knows the seat caps are up before it
+    /// proceeds.
+    pub fn spawn_prime(&self) -> Result<Prime, HarnessError> {
+        let bin = std::env::var_os("CARGO_BIN_EXE_wdotool")
+            .map(PathBuf::from)
+            .or_else(default_wdotool_path)
+            .ok_or_else(|| {
+                HarnessError::SpawnFailed(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "could not locate wdotool binary",
+                ))
+            })?;
+
+        let mut cmd = Command::new(bin);
+        self.apply_env(&mut cmd);
+        cmd.args(["--backend", "wlroots", "prime"]);
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        let mut child = cmd.spawn().map_err(HarnessError::SpawnFailed)?;
+
+        // Block until prime prints `ready` (or it dies). 5s budget;
+        // prime is essentially as fast as any wdotool invocation
+        // because it just builds the wlroots backend and prints.
+        let stdout = child.stdout.take().expect("piped");
+        let mut reader = BufReader::new(stdout);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => {
+                    return Err(HarnessError::SpawnFailed(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "prime exited before printing ready",
+                    )))
+                }
+                Ok(_) => {
+                    if line.trim() == "ready" {
+                        return Ok(Prime { child });
+                    }
+                }
+                Err(_) if Instant::now() > deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(HarnessError::SpawnFailed(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "timed out waiting for `wdotool prime` to print ready",
+                    )));
+                }
+                Err(_) => continue,
+            }
+        }
+    }
 }
 
 impl Drop for HeadlessSway {
@@ -259,130 +300,33 @@ impl Drop for HeadlessSway {
     }
 }
 
-/// A running weston compositor with its `headless` backend, a private
-/// `XDG_RUNTIME_DIR`, and a unique `WAYLAND_DISPLAY` socket. Drop kills
-/// weston and cleans up. Same shape as [`HeadlessSway`]; round-trip
-/// tests against weston are useful to check whether the seat-cap race
-/// that affects the wlroots-headless backend behaves the same way under
-/// weston-headless.
-pub struct HeadlessWeston {
-    runtime_dir: TempDir,
-    display_name: String,
-    weston: Child,
+/// Handle to a running `wdotool prime` subprocess. While alive, the
+/// wlroots virtual_keyboard + virtual_pointer stay registered on the
+/// compositor's seat, so observer clients in the same session keep
+/// the keyboard/pointer cap visible without having to rebind on every
+/// transient `wdotool` invocation. Drop sends SIGTERM and waits.
+pub struct Prime {
+    child: Child,
 }
 
-impl HeadlessWeston {
-    /// Spawn weston with the `headless` backend and wait for its
-    /// Wayland socket to appear. Returns `Err(WestonUnavailable)` when
-    /// weston isn't on `PATH`.
-    pub fn start() -> Result<Self, HarnessError> {
-        Self::start_with(StartOptions::default())
-    }
-
-    pub fn start_with(opts: StartOptions) -> Result<Self, HarnessError> {
-        let runtime_dir = tempfile::Builder::new()
-            .prefix("wdotool-headless-weston-")
-            .tempdir()?;
-        let _ = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
-
-        // Empty config dir so weston ignores any host-wide weston.ini
-        // and runs with sane defaults. Living inside the same tempdir
-        // means it gets cleaned up on Drop.
-        let config_dir = runtime_dir.path().join("config");
-        std::fs::create_dir_all(&config_dir)?;
-
-        let mut cmd = Command::new("weston");
-        cmd.env("XDG_RUNTIME_DIR", runtime_dir.path())
-            .env("XDG_CONFIG_HOME", &config_dir)
-            .env_remove("WAYLAND_DISPLAY")
-            .env_remove("WAYLAND_SOCKET")
-            .env_remove("DISPLAY");
-        cmd.arg("--backend=headless");
-        // Cap output count via flag rather than env var; weston exposes
-        // it directly.
-        cmd.arg(format!("--width={}", 1280));
-        cmd.arg(format!("--height={}", 720));
-        if opts.outputs > 1 {
-            // weston headless creates one output by default. Multi-
-            // output isn't a flag we use yet; if a test needs it,
-            // we'll add `--multi-output` or whatever weston supports.
-        }
-        cmd.stdout(Stdio::null());
-        cmd.stderr(Stdio::piped());
-
-        let mut weston = cmd.spawn().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                HarnessError::WestonUnavailable(e)
-            } else {
-                HarnessError::SpawnFailed(e)
-            }
-        })?;
-
-        let deadline = Instant::now() + opts.start_timeout;
-        loop {
-            if let Some(name) = find_wayland_socket(runtime_dir.path())? {
-                return Ok(Self {
-                    runtime_dir,
-                    display_name: name,
-                    weston,
-                });
-            }
-            if let Some(_status) = weston.try_wait()? {
-                let mut stderr = String::new();
-                if let Some(mut e) = weston.stderr.take() {
-                    use std::io::Read;
-                    let _ = e.read_to_string(&mut stderr);
-                }
-                return Err(HarnessError::WestonExitedEarly { stderr });
-            }
-            if Instant::now() > deadline {
-                let _ = weston.kill();
-                let _ = weston.wait();
-                let mut stderr = String::new();
-                if let Some(mut e) = weston.stderr.take() {
-                    use std::io::Read;
-                    let _ = e.read_to_string(&mut stderr);
-                }
-                eprintln!("weston start timeout. captured stderr:\n{stderr}");
-                return Err(HarnessError::WestonStartTimeout);
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    pub fn runtime_dir(&self) -> &Path {
-        self.runtime_dir.path()
-    }
-
-    pub fn display(&self) -> &str {
-        &self.display_name
-    }
-
-    pub fn apply_env(&self, cmd: &mut Command) {
-        apply_env_to(cmd, self.runtime_dir.path(), &self.display_name);
-    }
-
-    pub fn spawn_observer(&self) -> Result<Observer, HarnessError> {
-        spawn_observer_with(self.runtime_dir.path(), &self.display_name)
-    }
-
-    pub fn run_wdotool(&self, args: &[&str]) -> Result<std::process::Output, HarnessError> {
-        run_wdotool_with(self.runtime_dir.path(), &self.display_name, args)
-    }
-}
-
-impl Drop for HeadlessWeston {
+impl Drop for Prime {
     fn drop(&mut self) {
-        let _ = self.weston.kill();
-        let _ = self.weston.wait();
+        // Try a polite SIGTERM first via libc::kill; fall back to
+        // Child::kill (SIGKILL) if that fails. Either way we wait
+        // before returning so the compositor sees the device removal.
+        unsafe {
+            libc::kill(self.child.id() as i32, libc::SIGTERM);
+        }
+        // Give it a beat to clean up; then make sure it's gone.
+        let _ = self.child.wait();
     }
 }
 
 // ============================================================
-// Shared helpers used by both HeadlessSway and HeadlessWeston. These
-// were inline on HeadlessSway before HeadlessWeston existed; pulled
-// out so the two compositor structs don't repeat identical method
-// bodies.
+// Helpers shared between the compositor runner's instance methods.
+// Lifted out of `impl HeadlessSway` so additional runners can call
+// the same machinery without copy-pasting; right now sway is the
+// only target (weston dropped due to missing zwlr_virtual_pointer).
 // ============================================================
 
 fn apply_env_to(cmd: &mut Command, runtime_dir: &Path, display: &str) {

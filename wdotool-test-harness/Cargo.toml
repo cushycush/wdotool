@@ -26,6 +26,9 @@ wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 xkbcommon = "0.9"
 rustix = { version = "1", features = ["fs", "shm"] }
+# For SIGTERM in Prime's Drop. Child::kill is SIGKILL which doesn't
+# give wdotool a chance to release virtual devices cleanly.
+libc = "0.2"
 
 [dependencies]
 tempfile = "3"
