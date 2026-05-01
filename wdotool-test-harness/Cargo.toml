@@ -5,20 +5,27 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Wayland input observer for wdotool integration tests. Connects to a compositor, takes the seat, and writes one line per received input event to stdout. Test code drives wdotool against a headless compositor running this observer and asserts on the captured stream. Not published; workspace-internal."
+description = "Wayland input observer + headless-compositor runner for wdotool integration tests. The library provides HeadlessSway (spawns sway --headless with a private XDG_RUNTIME_DIR + WAYLAND_DISPLAY) and an Observer handle to read input events. The bin (wdotool-observer) is the small Wayland client the runner spawns inside that compositor. Workspace-internal; not published."
 publish = false
+
+[lib]
+name = "wdotool_test_harness"
+path = "src/lib.rs"
 
 [[bin]]
 name = "wdotool-observer"
-path = "src/main.rs"
+path = "src/bin/wdotool-observer.rs"
 
-# The harness only makes sense on Linux (Wayland clients). Other
-# platforms can build the workspace fine because Cargo's target
-# resolution skips this crate's deps when the OS doesn't match.
+# The Wayland client (the bin) only makes sense on Linux. The runner
+# (the lib) is also Linux-only because it spawns sway, but we keep the
+# cfg attached to the deps so the workspace can build on other
+# platforms without breaking; tests that use the runner skip
+# themselves when sway isn't available.
 [target.'cfg(target_os = "linux")'.dependencies]
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 xkbcommon = "0.9"
-# rustix for the shm-buffer fd dance. wdotool-core already pulls it in
-# under the wlroots feature, so the workspace cache stays warm.
 rustix = { version = "1", features = ["fs", "shm"] }
+
+[dependencies]
+tempfile = "3"

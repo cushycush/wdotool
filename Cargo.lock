@@ -1345,6 +1345,7 @@ dependencies = [
  "tokio",
  "tracing-subscriber",
  "wdotool-core",
+ "wdotool-test-harness",
 ]
 
 [[package]]
@@ -1381,6 +1382,7 @@ name = "wdotool-test-harness"
 version = "0.4.0"
 dependencies = [
  "rustix",
+ "tempfile",
  "wayland-client",
  "wayland-protocols",
  "xkbcommon",

@@ -50,6 +50,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [dev-dependencies]
 wdotool-core = { path = "../wdotool-core", features = ["testing"] }
 tempfile = "3"
+# Headless-compositor harness for round-trip integration tests. Linux-only.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+wdotool-test-harness = { path = "../wdotool-test-harness" }
 
 # Debian / Ubuntu packaging metadata. Consumed by cargo-deb in the
 # distros.yml CI workflow on tag push to produce wdotool_<version>_amd64.deb.

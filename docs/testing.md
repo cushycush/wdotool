@@ -26,17 +26,15 @@ If you add a new subcommand, write its tests in the matching `cli_*.rs` file usi
 
 This layer doesn't catch bugs in the actual backends. Whether wlroots correctly translates `Press(Control_L)` into a real keyboard event the compositor delivers to the focused window is a question for the next layer.
 
-## Layer 3: headless-compositor harness (not yet built)
+## Layer 3: headless-compositor harness
 
-A tiny Wayland client built on `smithay-client-toolkit` that opens a surface, listens for input events on its own seat, and writes received events to stdout in a stable format. The test runner spawns Sway in `WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1` mode, runs the harness inside it, runs `wdotool` against it, and asserts that the input the harness reports matches the expected sequence.
+A small Wayland observer client (`wdotool-observer`, in the `wdotool-test-harness` crate) opens a surface, takes the seat, and writes one line per received input event to stdout. The runner (`HeadlessSway` in the same crate) spawns sway with `WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1` in a private `XDG_RUNTIME_DIR`, runs the observer inside it, and shells out to `wdotool` against the same display. Tests assert on the observer's captured event stream.
 
-This is the layer that catches the bugs Layer 2 can't reach: transient-keymap-injection bugs on wlroots, modifier-state divergence between what wdotool thinks is pressed and what the compositor actually delivers, scroll axis sign and discrete-vs-smooth handling, the focus model around `windowactivate` followed by `key`. About a day's work to write the harness, then maybe an hour per command to add a round-trip test.
+This layer catches the bugs Layer 2 can't reach: transient-keymap-injection bugs on wlroots, modifier-state divergence between what wdotool thinks is pressed and what the compositor actually delivers, scroll axis sign and discrete-vs-smooth handling, the focus model around `windowactivate` followed by `key`. It's also what makes `wdotool record` round-trippable: capture events, replay them, assert the replay matches.
 
-This is also the layer that makes `wdotool record` round-trippable: a CI job can record events, replay them, and assert the recorded stream matches the replayed stream within tolerance. That closes the recorder loop without needing a human.
+The harness is bootstrapped (issue [#30](https://github.com/cushycush/wdotool/issues/30)) with four placeholder round-trip tests in `wdotool/tests/cli_roundtrip.rs` covering: surface-becomes-ready, `key a` round-trip, `key ctrl+shift+a` modifier ordering, and `scroll 0 3` axis sign. The tests skip themselves with a friendly "install sway" message when sway isn't on `PATH`, so the suite stays green on machines without sway. Once sway is installed locally (`pacman -S sway` on Arch, `apt install sway` on Debian/Ubuntu) or in CI, the four tests run for real and any new test for a new command takes roughly an hour to write.
 
-The headless harness is the unlock for everything else. Until it exists, the questions of "does my actual key event reach the compositor" and "does it reach the right window" are answered by humans on real desktops. After it exists, both questions are CI-asserted on every PR.
-
-If you're picking up this layer, start with the harness alone, get it printing what it observes, and only then start writing round-trip tests against it. Issue tracker: not filed yet. Open one if you want to claim it.
+Output format from the observer is one line per event, space-separated, designed for grep-friendly asserts: `key 38 a press`, `pointer_motion 100.0 200.0`, `pointer_axis vertical 1.0`, and so on. The observer's xkb integration resolves linux-evdev keycodes to keysym names so test assertions stay layout-independent.
 
 ## Layer 4: KDE and GNOME
 
@@ -54,9 +52,9 @@ A handful of things really do need a human, and "does the active window actually
 
 ## Running everything locally
 
-The `cargo test --workspace` command runs Layers 1 and 2 (unit + mock-integration) and finishes in under a second on a warm cache. That's the bar for any PR: the existing tests stay green, and any new behavior gets a Layer 2 test before it lands.
+The `cargo test --workspace` command runs Layers 1 and 2 plus the Layer 3 framework (which skips when sway isn't installed) and finishes in under a second on a warm cache. That's the bar for any PR: the existing tests stay green, and any new behavior gets a Layer 2 test before it lands.
 
-Layer 3 will add maybe five minutes to a workspace test once it exists. Layer 4 manual matrix is a release-time activity.
+When sway is installed, the Layer 3 round-trip suite adds about a second per test. Layer 4 manual matrix is a release-time activity.
 
 ## When you add a new subcommand
 

@@ -437,7 +437,7 @@ mod linux_main {
                         .as_ref()
                         .map(|s| s.key_get_one_sym(xkb_keycode.into()))
                         .filter(|s| s.raw() != 0)
-                        .map(|s| xkb::keysym_get_name(s))
+                        .map(xkb::keysym_get_name)
                         .unwrap_or_else(|| "?".into());
                     println!("key {key} {name} {action}");
                     std::io::stdout().flush().ok();
