@@ -105,9 +105,11 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build workspace + tests
-        # Build everything once so the test step doesn't have to compile
-        # the test binaries from scratch on a cache miss.
-        run: cargo build --workspace --tests --locked
+        # --all-targets so the wdotool-observer bin gets built. cargo
+        # build --tests by itself only builds test artifacts; bins from
+        # other workspace packages are needed at test time and won't be
+        # there without --all-targets (or --bins on top of --tests).
+        run: cargo build --workspace --all-targets --locked
 
       - name: Run round-trip tests
         # WLR_RENDERER=pixman forces software rendering. GitHub runners

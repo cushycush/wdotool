@@ -119,14 +119,12 @@ fn key_ctrl_shift_a_emits_modifiers_in_xdotool_order() {
     // to "A" (capital), not "a" (lowercase). Either is valid as long
     // as it's the same on press and release.
     assert!(
-        (keys[2].contains(" a ") || keys[2].contains(" A "))
-            && keys[2].ends_with(" press"),
+        (keys[2].contains(" a ") || keys[2].contains(" A ")) && keys[2].ends_with(" press"),
         "third: {}",
         keys[2]
     );
     assert!(
-        (keys[3].contains(" a ") || keys[3].contains(" A "))
-            && keys[3].ends_with(" release"),
+        (keys[3].contains(" a ") || keys[3].contains(" A ")) && keys[3].ends_with(" release"),
         "fourth: {}",
         keys[3]
     );
@@ -358,7 +356,11 @@ fn mousedown_then_mouseup_emit_press_then_release() {
     sway.run_wdotool(&["mousedown", "1"]).expect("run wdotool");
     let post_down = observer.collect_events(Duration::from_millis(200));
     let buttons = lines_starting_with(&post_down, "pointer_button ");
-    assert_eq!(buttons.len(), 1, "mousedown should emit only press: {post_down:?}");
+    assert_eq!(
+        buttons.len(),
+        1,
+        "mousedown should emit only press: {post_down:?}"
+    );
     assert!(
         buttons[0].ends_with(" press"),
         "expected press, got: {}",
@@ -368,7 +370,11 @@ fn mousedown_then_mouseup_emit_press_then_release() {
     sway.run_wdotool(&["mouseup", "1"]).expect("run wdotool");
     let post_up = observer.collect_events(Duration::from_millis(200));
     let buttons = lines_starting_with(&post_up, "pointer_button ");
-    assert_eq!(buttons.len(), 1, "mouseup should emit only release: {post_up:?}");
+    assert_eq!(
+        buttons.len(),
+        1,
+        "mouseup should emit only release: {post_up:?}"
+    );
     assert!(
         buttons[0].ends_with(" release"),
         "expected release, got: {}",
@@ -386,7 +392,9 @@ fn scroll_positive_dy_emits_vertical_axis_with_positive_value() {
     let Some((sway, observer)) = fresh_session() else {
         return;
     };
-    let out = sway.run_wdotool(&["scroll", "0", "3"]).expect("run wdotool");
+    let out = sway
+        .run_wdotool(&["scroll", "0", "3"])
+        .expect("run wdotool");
     assert!(out.status.success(), "wdotool failed: {out:?}");
 
     let events = observer.collect_events(Duration::from_millis(300));
@@ -395,7 +403,10 @@ fn scroll_positive_dy_emits_vertical_axis_with_positive_value() {
         .find(|l| l.starts_with("pointer_axis vertical "))
         .unwrap_or_else(|| panic!("no vertical axis event in: {events:?}"));
     let value: f64 = axis.split_whitespace().nth(2).unwrap().parse().unwrap();
-    assert!(value > 0.0, "expected positive vertical scroll, got {value}");
+    assert!(
+        value > 0.0,
+        "expected positive vertical scroll, got {value}"
+    );
 }
 
 #[ignore = "headless-sway: see mousemove_absolute_lands_pointer_at_coords for explanation"]
@@ -407,7 +418,9 @@ fn scroll_negative_dy_emits_vertical_axis_with_negative_value() {
     let Some((sway, observer)) = fresh_session() else {
         return;
     };
-    let out = sway.run_wdotool(&["scroll", "0", "-2"]).expect("run wdotool");
+    let out = sway
+        .run_wdotool(&["scroll", "0", "-2"])
+        .expect("run wdotool");
     assert!(out.status.success(), "wdotool failed: {out:?}");
 
     let events = observer.collect_events(Duration::from_millis(300));
@@ -416,7 +429,10 @@ fn scroll_negative_dy_emits_vertical_axis_with_negative_value() {
         .find(|l| l.starts_with("pointer_axis vertical "))
         .unwrap_or_else(|| panic!("no vertical axis event in: {events:?}"));
     let value: f64 = axis.split_whitespace().nth(2).unwrap().parse().unwrap();
-    assert!(value < 0.0, "expected negative vertical scroll, got {value}");
+    assert!(
+        value < 0.0,
+        "expected negative vertical scroll, got {value}"
+    );
 }
 
 #[ignore = "headless-sway: see mousemove_absolute_lands_pointer_at_coords for explanation"]

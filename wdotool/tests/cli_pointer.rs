@@ -239,11 +239,5 @@ async fn scroll_passes_axes_through() {
 async fn scroll_supports_fractional_and_negative_values() {
     let r = common::run(&["scroll", "-1.5", "2.25"]).await;
     assert!(r.exit.is_success());
-    assert_eq!(
-        r.calls,
-        vec![BackendCall::Scroll {
-            dx: -1.5,
-            dy: 2.25,
-        }]
-    );
+    assert_eq!(r.calls, vec![BackendCall::Scroll { dx: -1.5, dy: 2.25 }]);
 }

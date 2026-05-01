@@ -123,9 +123,7 @@ async fn search_any_combines_filters_with_or() {
     // since w1 doesn't have class "kitty" and w2 doesn't have name
     // "Firefox". --any makes both match.
     let r = common::run_with(
-        &[
-            "search", "--any", "--name", "Firefox", "--class", "kitty",
-        ],
+        &["search", "--any", "--name", "Firefox", "--class", "kitty"],
         mock,
         Environment::default(),
     )
@@ -174,12 +172,7 @@ async fn windowclose_passes_id_verbatim() {
 #[tokio::test]
 async fn getwindowname_prints_title_for_known_id() {
     let mock = mock_with_windows(vec![win("w1", "Firefox - News", None, None)]);
-    let r = common::run_with(
-        &["getwindowname", "w1"],
-        mock,
-        Environment::default(),
-    )
-    .await;
+    let r = common::run_with(&["getwindowname", "w1"], mock, Environment::default()).await;
     assert!(r.exit.is_success());
     assert_eq!(r.stdout, "Firefox - News\n");
 }
@@ -187,12 +180,7 @@ async fn getwindowname_prints_title_for_known_id() {
 #[tokio::test]
 async fn getwindowname_unknown_id_errors() {
     let mock = mock_with_windows(vec![win("w1", "Firefox", None, None)]);
-    let r = common::run_with(
-        &["getwindowname", "missing"],
-        mock,
-        Environment::default(),
-    )
-    .await;
+    let r = common::run_with(&["getwindowname", "missing"], mock, Environment::default()).await;
     let err = r.error.expect("expected an error");
     assert!(matches!(err, WdoError::WindowNotFound(_)), "got: {err:?}");
 }
@@ -215,18 +203,22 @@ async fn getwindowpid_exits_1_when_pid_absent() {
     assert_eq!(r.exit.0, 1);
     assert!(r.error.is_none());
     assert_eq!(r.stdout, "");
-    assert!(r.stderr.contains("pid not available"), "stderr: {}", r.stderr);
+    assert!(
+        r.stderr.contains("pid not available"),
+        "stderr: {}",
+        r.stderr
+    );
 }
 
 #[tokio::test]
 async fn getwindowclassname_prints_app_id_when_set() {
-    let mock = mock_with_windows(vec![win("w1", "Firefox", Some("org.mozilla.firefox"), None)]);
-    let r = common::run_with(
-        &["getwindowclassname", "w1"],
-        mock,
-        Environment::default(),
-    )
-    .await;
+    let mock = mock_with_windows(vec![win(
+        "w1",
+        "Firefox",
+        Some("org.mozilla.firefox"),
+        None,
+    )]);
+    let r = common::run_with(&["getwindowclassname", "w1"], mock, Environment::default()).await;
     assert!(r.exit.is_success());
     assert_eq!(r.stdout, "org.mozilla.firefox\n");
 }
@@ -234,12 +226,7 @@ async fn getwindowclassname_prints_app_id_when_set() {
 #[tokio::test]
 async fn getwindowclassname_exits_1_when_app_id_absent() {
     let mock = mock_with_windows(vec![win("w1", "Firefox", None, None)]);
-    let r = common::run_with(
-        &["getwindowclassname", "w1"],
-        mock,
-        Environment::default(),
-    )
-    .await;
+    let r = common::run_with(&["getwindowclassname", "w1"], mock, Environment::default()).await;
     assert_eq!(r.exit.0, 1);
     assert!(r.error.is_none());
     assert!(r.stderr.contains("classname"), "stderr: {}", r.stderr);
@@ -257,12 +244,7 @@ async fn getwindowgeometry_prints_xdotool_format_when_supported() {
             height: 600,
         },
     );
-    let r = common::run_with(
-        &["getwindowgeometry", "w1"],
-        mock,
-        Environment::default(),
-    )
-    .await;
+    let r = common::run_with(&["getwindowgeometry", "w1"], mock, Environment::default()).await;
     assert!(r.exit.is_success(), "stderr: {}", r.stderr);
     // xdotool's exact format. The "Screen: N" line xdotool prints is
     // dropped on Wayland (no stable screen index exposed to clients).

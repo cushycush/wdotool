@@ -33,27 +33,11 @@ use crate::WdoError;
 /// `Vec<BackendCall>` and `assert_eq!` against `mock.calls()`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum BackendCall {
-    Key {
-        keysym: String,
-        dir: KeyDirection,
-    },
-    TypeText {
-        text: String,
-        delay: Duration,
-    },
-    MouseMove {
-        x: i32,
-        y: i32,
-        absolute: bool,
-    },
-    MouseButton {
-        btn: MouseButton,
-        dir: KeyDirection,
-    },
-    Scroll {
-        dx: f64,
-        dy: f64,
-    },
+    Key { keysym: String, dir: KeyDirection },
+    TypeText { text: String, delay: Duration },
+    MouseMove { x: i32, y: i32, absolute: bool },
+    MouseButton { btn: MouseButton, dir: KeyDirection },
+    Scroll { dx: f64, dy: f64 },
     ListWindows,
     ActiveWindow,
     ActivateWindow(WindowId),

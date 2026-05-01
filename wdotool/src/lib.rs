@@ -95,13 +95,21 @@ pub async fn dispatch(ctx: &mut DispatchCtx<'_>, cmd: Command) -> Result<ExitCod
                 caps.pointer_move_relative
             )
             .map_err(io_err)?;
-            writeln!(ctx.stdout, "  pointer_button:        {}", caps.pointer_button)
-                .map_err(io_err)?;
+            writeln!(
+                ctx.stdout,
+                "  pointer_button:        {}",
+                caps.pointer_button
+            )
+            .map_err(io_err)?;
             writeln!(ctx.stdout, "  scroll:                {}", caps.scroll).map_err(io_err)?;
             writeln!(ctx.stdout, "  list_windows:          {}", caps.list_windows)
                 .map_err(io_err)?;
-            writeln!(ctx.stdout, "  active_window:         {}", caps.active_window)
-                .map_err(io_err)?;
+            writeln!(
+                ctx.stdout,
+                "  active_window:         {}",
+                caps.active_window
+            )
+            .map_err(io_err)?;
             writeln!(
                 ctx.stdout,
                 "  activate_window:       {}",
@@ -196,7 +204,9 @@ pub async fn dispatch(ctx: &mut DispatchCtx<'_>, cmd: Command) -> Result<ExitCod
                 }
                 None => (x, y),
             };
-            ctx.backend.mouse_move(target_x, target_y, !relative).await?;
+            ctx.backend
+                .mouse_move(target_x, target_y, !relative)
+                .await?;
         }
         Command::Click { button } => {
             ctx.backend

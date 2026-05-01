@@ -240,7 +240,9 @@ async fn type_reads_from_file() {
 #[tokio::test]
 async fn type_with_neither_arg_errors() {
     let r = common::run(&["type"]).await;
-    let err = r.error.expect("expected an error from `type` with no input");
+    let err = r
+        .error
+        .expect("expected an error from `type` with no input");
     assert!(matches!(err, WdoError::InvalidArg(_)), "got: {err:?}");
 }
 

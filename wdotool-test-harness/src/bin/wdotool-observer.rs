@@ -245,12 +245,17 @@ mod linux_main {
                 match interface.as_str() {
                     "wl_compositor" => {
                         let v = version.min(4);
-                        state.compositor =
-                            Some(registry.bind::<wl_compositor::WlCompositor, _, _>(name, v, qh, ()));
+                        state.compositor = Some(
+                            registry.bind::<wl_compositor::WlCompositor, _, _>(name, v, qh, ()),
+                        );
                     }
                     "wl_shm" => {
-                        state.shm =
-                            Some(registry.bind::<wl_shm::WlShm, _, _>(name, version.min(1), qh, ()));
+                        state.shm = Some(registry.bind::<wl_shm::WlShm, _, _>(
+                            name,
+                            version.min(1),
+                            qh,
+                            (),
+                        ));
                     }
                     "xdg_wm_base" => {
                         state.xdg_wm_base = Some(registry.bind::<xdg_wm_base::XdgWmBase, _, _>(
@@ -439,10 +444,7 @@ mod linux_main {
         ) {
             match event {
                 wl_keyboard::Event::Keymap { format, fd, size } => {
-                    if matches!(
-                        format,
-                        WEnum::Value(wl_keyboard::KeymapFormat::XkbV1)
-                    ) {
+                    if matches!(format, WEnum::Value(wl_keyboard::KeymapFormat::XkbV1)) {
                         // SAFETY: the compositor sent us a freshly-mmappable fd
                         // describing an xkb v1 keymap. xkbcommon's
                         // new_from_fd takes ownership and mmaps it.
