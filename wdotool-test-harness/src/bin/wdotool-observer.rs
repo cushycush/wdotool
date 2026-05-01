@@ -80,6 +80,16 @@ mod linux_main {
         configured: bool,
         ready_emitted: bool,
 
+        // Input devices, bound lazily when the seat advertises the
+        // matching capability. In a headless sway with no real input
+        // devices, the seat starts with capabilities=0 and only
+        // gains keyboard/pointer caps when another client (e.g.
+        // wdotool's wlroots backend) creates a virtual_keyboard /
+        // virtual_pointer instance. Eagerly calling get_keyboard /
+        // get_pointer at startup is a protocol error.
+        keyboard: Option<wl_keyboard::WlKeyboard>,
+        pointer: Option<wl_pointer::WlPointer>,
+
         // xkb state for keysym name resolution.
         xkb_context: xkb::Context,
         xkb_keymap: Option<xkb::Keymap>,
@@ -98,6 +108,8 @@ mod linux_main {
                 xdg_toplevel: None,
                 configured: false,
                 ready_emitted: false,
+                keyboard: None,
+                pointer: None,
                 xkb_context: xkb::Context::new(xkb::CONTEXT_NO_FLAGS),
                 xkb_keymap: None,
                 xkb_state: None,
@@ -124,7 +136,10 @@ mod linux_main {
             .xdg_wm_base
             .clone()
             .ok_or("missing xdg_wm_base (compositor lacks xdg-shell?)")?;
-        let seat = state.seat.clone().ok_or("missing wl_seat")?;
+        // Hold onto the seat so its dispatch handler can fire when
+        // the compositor advertises capabilities later. Don't bind
+        // keyboard/pointer here; that happens lazily.
+        let _seat = state.seat.clone().ok_or("missing wl_seat")?;
 
         // Build the surface and turn it into a toplevel. Tiny 1x1
         // buffer is enough for the compositor to consider us mappable;
@@ -140,11 +155,11 @@ mod linux_main {
         state.xdg_surface = Some(xdg_surf);
         state.xdg_toplevel = Some(toplevel);
 
-        // Ask the seat for its keyboard and pointer so we can listen
-        // for events. The capability bitmask comes back via the seat's
-        // Capabilities event; we wire keyboard/pointer there.
-        let _ = seat.get_keyboard(&qh, ());
-        let _ = seat.get_pointer(&qh, ());
+        // We don't bind keyboard/pointer here; they're bound lazily
+        // from the seat's Capabilities event handler when the
+        // compositor advertises them. Headless sway starts with
+        // capabilities=0 and only gains them when wdotool's wlroots
+        // backend creates virtual input devices.
 
         // Now wait for configure and for keyboard/pointer to come up.
         // After that the run loop just dispatches forever, printing
@@ -369,18 +384,47 @@ mod linux_main {
 
     impl Dispatch<wl_seat::WlSeat, ()> for State {
         fn event(
-            _: &mut Self,
-            _: &wl_seat::WlSeat,
-            _: wl_seat::Event,
+            state: &mut Self,
+            seat: &wl_seat::WlSeat,
+            event: wl_seat::Event,
             _: &(),
             _: &Connection,
-            _: &QueueHandle<Self>,
+            qh: &QueueHandle<Self>,
         ) {
-            // We pre-emptively call get_keyboard / get_pointer at
-            // startup rather than reacting to Capabilities, because
-            // wlroots compositors always advertise both. If a future
-            // test target lacks one we'll see a missing-event signature
-            // in the captured stream and add the conditional here.
+            if let wl_seat::Event::Capabilities {
+                capabilities: WEnum::Value(caps),
+            } = event
+            {
+                // Logging the cap mask helps debug "where did my
+                // event go" failures.
+                println!("seat_caps {:#x}", caps.bits());
+                std::io::stdout().flush().ok();
+
+                // Per the wl_seat spec, when a capability is removed
+                // the client should release the matching wl_pointer /
+                // wl_keyboard, and rebind on the next "added" event.
+                // Without this, after the first wdotool run finishes
+                // and removes its virtual device, the observer's
+                // pointer/keyboard becomes inert and a second
+                // wdotool invocation delivers events to a dead object.
+                if !caps.contains(wl_seat::Capability::Keyboard) {
+                    if let Some(k) = state.keyboard.take() {
+                        k.release();
+                    }
+                }
+                if !caps.contains(wl_seat::Capability::Pointer) {
+                    if let Some(p) = state.pointer.take() {
+                        p.release();
+                    }
+                }
+
+                if caps.contains(wl_seat::Capability::Keyboard) && state.keyboard.is_none() {
+                    state.keyboard = Some(seat.get_keyboard(qh, ()));
+                }
+                if caps.contains(wl_seat::Capability::Pointer) && state.pointer.is_none() {
+                    state.pointer = Some(seat.get_pointer(qh, ()));
+                }
+            }
         }
     }
 

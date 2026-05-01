@@ -23,13 +23,22 @@
 #![cfg(target_os = "linux")]
 
 use std::io::{BufRead, BufReader};
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
+
+/// Per-test-binary monotonic counter used to give each `HeadlessSway`
+/// a unique `WAYLAND_DISPLAY` name. Cargo runs integration tests in
+/// parallel inside the same test binary, so all tests share the same
+/// pid; without this, two concurrent tests would race for the same
+/// socket and one would silently connect to the other's compositor.
+static SESSION_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Top-level error type. Tests pattern-match on the variants so
 /// "sway is not installed" gets turned into a skip rather than a
@@ -105,7 +114,12 @@ impl HeadlessSway {
         let runtime_dir = tempfile::Builder::new()
             .prefix("wdotool-headless-")
             .tempdir()?;
-        let display_name = format!("wdotool-test-{}", std::process::id());
+        // Sway picks its own socket name via wl_display_add_socket_auto
+        // (it ignores WAYLAND_DISPLAY in the env), so we don't try to
+        // pre-set it. Each test has its own XDG_RUNTIME_DIR via
+        // tempfile, so collisions are impossible: sway will land on
+        // `wayland-1` inside an empty tmpdir every time.
+        let _ = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         // sway needs a config; pass a minimal one through stdin via a
         // tempfile. Empty config means "load defaults", which is fine
@@ -122,22 +136,17 @@ impl HeadlessSway {
 
         let mut cmd = Command::new("sway");
         cmd.env("XDG_RUNTIME_DIR", runtime_dir.path())
-            .env("WAYLAND_DISPLAY", &display_name)
             .env("WLR_BACKENDS", "headless")
             .env("WLR_LIBINPUT_NO_DEVICES", "1")
             // Without this sway tries to auto-detect a real DRM device
             // even with WLR_BACKENDS=headless. Pin to "" to be safe.
             .env("WLR_DRM_DEVICES", "")
-            .env(
-                "WLR_HEADLESS_OUTPUTS",
-                opts.outputs.to_string(),
-            )
-            // Don't inherit a parent Wayland session: sway would refuse
-            // to run as a nested compositor with the WAYLAND_DISPLAY
-            // we just set.
+            .env("WLR_HEADLESS_OUTPUTS", opts.outputs.to_string())
+            // Strip any inherited Wayland/X11 session so sway doesn't
+            // try to act as a nested compositor or pick up the dev
+            // box's DISPLAY.
+            .env_remove("WAYLAND_DISPLAY")
             .env_remove("WAYLAND_SOCKET")
-            // Same for X11: we don't want sway picking up the dev box's
-            // DISPLAY and trying to be an X11 client.
             .env_remove("DISPLAY");
         cmd.arg("-c").arg(&config_path);
         // Suppress sway's own stdout/stderr unless the test wants it.
@@ -154,13 +163,12 @@ impl HeadlessSway {
             }
         })?;
 
-        let socket_path = runtime_dir.path().join(&display_name);
         let deadline = Instant::now() + opts.start_timeout;
         loop {
-            if socket_path.exists() {
+            if let Some(name) = find_wayland_socket(runtime_dir.path())? {
                 return Ok(Self {
                     runtime_dir,
-                    display_name,
+                    display_name: name,
                     sway,
                 });
             }
@@ -177,6 +185,14 @@ impl HeadlessSway {
             if Instant::now() > deadline {
                 let _ = sway.kill();
                 let _ = sway.wait();
+                // Drain whatever sway wrote to stderr so the test can
+                // diagnose. SwayStartTimeout previously hid this.
+                let mut stderr = String::new();
+                if let Some(mut e) = sway.stderr.take() {
+                    use std::io::Read;
+                    let _ = e.read_to_string(&mut stderr);
+                }
+                eprintln!("sway start timeout. captured stderr:\n{stderr}");
                 return Err(HarnessError::SwayStartTimeout);
             }
             thread::sleep(Duration::from_millis(20));
@@ -282,8 +298,11 @@ impl Drop for HeadlessSway {
 /// or a longer startup window.
 pub struct StartOptions {
     /// How long to wait for sway's Wayland socket to appear before
-    /// giving up. Default 5 seconds; sway typically comes up in well
-    /// under one.
+    /// giving up. Default 15 seconds: sway typically comes up in well
+    /// under one, but `cargo test --workspace` runs every test binary
+    /// in parallel and these integration tests fight every other
+    /// suite for CPU. The timeout only costs anything when sway is
+    /// genuinely broken.
     pub start_timeout: Duration,
     /// Number of fake outputs the headless backend creates (sets
     /// `WLR_HEADLESS_OUTPUTS`). Default 1; bump to 2 for multi-output
@@ -294,7 +313,7 @@ pub struct StartOptions {
 impl Default for StartOptions {
     fn default() -> Self {
         Self {
-            start_timeout: Duration::from_secs(5),
+            start_timeout: Duration::from_secs(15),
             outputs: 1,
         }
     }
@@ -360,6 +379,32 @@ impl Drop for Observer {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Walk the runtime dir looking for the `wayland-N` socket file sway
+/// created via `wl_display_add_socket_auto`. Returns the socket name
+/// (e.g. "wayland-1") so the caller can set `WAYLAND_DISPLAY` for
+/// child clients.
+fn find_wayland_socket(dir: &Path) -> std::io::Result<Option<String>> {
+    if !dir.exists() {
+        return Ok(None);
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if let Some(name) = entry.file_name().to_str() {
+            // Sway writes both `wayland-N` (the socket) and
+            // `wayland-N.lock`. We want the socket itself, identified
+            // by being a unix-domain socket via file_type().
+            if name.starts_with("wayland-") && !name.ends_with(".lock") {
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_socket() {
+                        return Ok(Some(name.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 // ============================================================
