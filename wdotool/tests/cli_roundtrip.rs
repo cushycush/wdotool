@@ -318,26 +318,33 @@ fn type_hello_arrives_as_individual_characters() {
 // ============================================================
 // Pointer: mousemove (absolute / relative), click, mousedown/up.
 //
-// Every test in this section is `#[ignore]`d because sway-headless
-// doesn't deliver wl_pointer events to clients in response to
-// virtual_pointer.motion_absolute. The original theory was a
-// timing race (observer must bind pointer before sway processes
+// Every test in this section is `#[ignore]`d because the headless
+// wlroots stack doesn't deliver wl_pointer events to clients in
+// response to virtual_pointer.motion_absolute. The original theory
+// was a timing race (observer must bind pointer before sway processes
 // motion); empirical follow-up showed the pointer client IS bound
 // before motion (verified with `wdotool prime` keeping the cap up
-// continuously, and confirmed via `keyboard_enter` arriving at
-// the observer), but sway still doesn't fire pointer_motion or
-// pointer_enter. `swaymsg -t get_seats` reports `capabilities: 0`
-// even when the wl_seat protocol shows 0x3 to clients. Sway's
-// cursor pipeline appears to gate on real input devices, not the
-// virtual ones added via wlr_virtual_pointer_v1 in headless mode.
+// continuously, and confirmed via `keyboard_enter` arriving at the
+// observer), but pointer_motion / pointer_enter never fire.
+// `swaymsg -t get_seats` reports `capabilities: 0` even when the
+// wl_seat protocol shows 0x3 to clients, which says the cursor
+// pipeline gates on real input devices, not virtual ones added via
+// wlr_virtual_pointer_v1 in headless mode.
 //
-// Weston was tried as an alternative compositor target (its Arch
-// package doesn't ship `zwlr_virtual_pointer_v1`, so wdotool can't
-// even initialize against it). Other wlroots compositors (labwc,
-// river) might handle this differently and are worth a future try.
-// In the meantime, real-desktop pointer behavior is covered by the
-// pre-release manual matrix in `docs/verification/`. Layer 2
-// pins the CLI-to-backend dispatch for every pointer command.
+// Tried three other compositors hoping it was a sway-specific quirk:
+// weston (Arch package doesn't ship zwlr_virtual_pointer_v1, so
+// wdotool can't even initialize against it), labwc, and river.
+// Both labwc and river show the exact same shape as sway: caps up,
+// keyboard events work, no pointer events. Strongly suggests the
+// gate is in wlroots itself (the shared library all three use),
+// not in any compositor's high-level logic.
+//
+// What would actually un-ignore these: a non-wlroots target
+// (mutter / kwin via libei in CI), patching wlroots, or a custom
+// test compositor on smithay-rs. None are tractable in the current
+// scope. Real-desktop pointer behavior is covered by the pre-release
+// manual matrix in `docs/verification/`; Layer 2 pins the
+// CLI-to-backend dispatch for every pointer command.
 // ============================================================
 
 #[ignore = "sway-headless cursor doesn't fire wl_pointer events for virtual_pointer.motion; see file header"]
