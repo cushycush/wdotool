@@ -63,6 +63,7 @@ pub enum Command {
     },
 
     /// Move the mouse to (x, y) or by (dx, dy) with --relative.
+    #[command(allow_negative_numbers = true)]
     Mousemove {
         #[arg(long)]
         relative: bool,
@@ -87,6 +88,7 @@ pub enum Command {
     Mouseup { button: u32 },
 
     /// Scroll. Positive dy scrolls down; positive dx scrolls right.
+    #[command(allow_negative_numbers = true)]
     Scroll { dx: f64, dy: f64 },
 
     /// List windows matching the filters. With no filter, lists all
@@ -195,5 +197,31 @@ pub enum Command {
         /// (falls back to xclip).
         #[arg(long)]
         copy: bool,
+    },
+
+    /// Capture user input until Ctrl-C (or `--max-duration` elapses)
+    /// and write the events as JSON. Three capture sources are
+    /// available: the XDG RemoteDesktop portal (default on Plasma 6 /
+    /// GNOME 46+), `/dev/input/event*` via evdev (works on any
+    /// compositor if you're in the `input` group), and a deterministic
+    /// test source. With no `--backend` argument, portal is tried
+    /// first, then evdev.
+    #[cfg(feature = "recorder")]
+    Record {
+        /// Path to write the captured events as JSON. Default is
+        /// stdout. Use a real path to capture without the events
+        /// also being printed to the terminal.
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+        /// Stop automatically after this many seconds. Useful for
+        /// scripted captures; without it the recording runs until
+        /// Ctrl-C.
+        #[arg(long)]
+        max_duration: Option<u64>,
+        /// Force a specific capture source. `auto` (the default)
+        /// cascades portal -> evdev. `simulated` plays a deterministic
+        /// seven-event script and is for tests / CI.
+        #[arg(long, default_value = "auto")]
+        backend: String,
     },
 }

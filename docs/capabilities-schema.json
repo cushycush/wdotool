@@ -117,10 +117,10 @@
             "source": {
               "type": ["string", "null"],
               "enum": ["libei-receiver", null],
-              "description": "Where the recorder sources events. Locked enum; v0.2.0 always null. v0.4.0+ may emit `libei-receiver`."
+              "description": "Where the recorder sources events. Locked enum (additions are forward-compat per JSON Schema 2020-12). v0.4.0 emits null even when supported=true: the recorder cascades portal → evdev at runtime, so the actual source isn't known until `recorder::start` is called."
             }
           },
-          "description": "`wdotool record` capability. Stub in v0.2.0 (always {supported: false, source: null})."
+          "description": "`wdotool record` capability. v0.4.0 ships with `supported: true` when the binary was built with the `recorder` Cargo feature (default-on). `source` stays null even on supported builds — the runtime cascade decides between portal (libei-receiver) and evdev when a recording starts."
         },
         "json_output": {
           "type": "boolean",

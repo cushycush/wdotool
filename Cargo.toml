@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["wdotool-core", "wdotool"]
+members = ["wdotool-core", "wdotool", "wdotool-test-harness"]
 
 [workspace.package]
 version = "0.4.0"

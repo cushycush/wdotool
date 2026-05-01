@@ -89,6 +89,7 @@ xdotool ships a few shell-helper commands that don't map cleanly to a Wayland to
 
 - `wdotool diag` and `wdotool diag --copy` for environment introspection and bug-report capture.
 - `wdotool capabilities` for structured (JSON) introspection of what this build supports. Schema at [`capabilities-schema.json`](capabilities-schema.json).
+- `wdotool record` captures user input until Ctrl-C (or `--max-duration` elapses) and writes the events as JSON. Three capture sources: the XDG RemoteDesktop portal (libei in receiver mode, default on Plasma 6 / GNOME 46+), `/dev/input/event*` via evdev (works on any compositor if you're in the `input` group), and a deterministic test source. With no `--backend`, portal is tried first, then evdev. Built on `wdotool_core::recorder` so other Rust tools can consume the same capture stream as a library. Gated behind the `recorder` Cargo feature (default-on).
 - `wdotool outputs` (and `--json`) for monitor enumeration. Pair with `wdotool mousemove --output DP-1 100 100` to position the pointer in output-local coordinates instead of the global compositor space, which matters on multi-monitor setups. wlroots-only today; KDE / GNOME / libei still need their per-backend enumeration path wired up.
 - A library API (`wdotool-core` on crates.io) for embedding the engine in other Rust tools.
 - Per-backend Cargo features so library consumers can drop the backends they don't need (uinput especially, for sandboxed builds).

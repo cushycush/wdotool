@@ -241,8 +241,10 @@ Requires Rust 1.82+ (the CLI uses `Option::is_none_or`). Builds cleanly on stabl
 ```sh
 cargo build             # dev (workspace root builds both crates)
 cargo build --release   # release binary at target/release/wdotool
-cargo test              # 53 unit tests across both crates
+cargo test              # ~125 unit + integration tests across the workspace
 ```
+
+For the testing strategy (unit tests, mock-backend integration tests, the planned headless-compositor harness, and the pre-release manual matrix), see [docs/testing.md](docs/testing.md).
 
 System libraries at build time: `libxkbcommon-dev` and `libwayland-dev` (Debian/Ubuntu names; same underlying libraries elsewhere).
 

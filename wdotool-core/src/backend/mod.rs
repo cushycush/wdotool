@@ -9,6 +9,9 @@ use crate::types::{
 
 pub mod detector;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod mock;
+
 #[cfg(feature = "gnome")]
 pub(crate) mod gnome;
 #[cfg(feature = "kde")]
