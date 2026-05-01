@@ -116,6 +116,17 @@ wdotool getwindowpid <id>                 # print a window's PID
 wdotool getwindowclassname <id>           # print a window's app_id (X11 WM_CLASS equivalent)
 wdotool windowactivate <id>               # focus a window
 wdotool windowclose <id>                  # close a window
+
+wdotool record -o trace.json              # capture input until Ctrl-C, write JSON
+wdotool record --max-duration 30          # auto-stop after 30 seconds
+wdotool record --backend evdev            # /dev/input/event* (needs `input` group)
+wdotool replay trace.json                 # replay a captured trace at original speed
+wdotool replay trace.json --speed 4       # 4x faster
+cat trace.json | wdotool replay -         # read trace from stdin
+
+wdotool prime &                           # hold virtual devices alive in the background
+wdotool key a; wdotool key b              # subsequent calls skip per-call setup latency
+kill %1                                   # release devices when done
 ```
 
 Global flags:
