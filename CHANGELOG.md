@@ -7,13 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-01
+
 ### Added
-- `wdotool record [--output FILE] [--max-duration SEC] [--backend portal|evdev|simulated|auto]` captures user input until Ctrl-C (or the duration elapses) and writes the events as JSON. Built on the `wdotool_core::recorder` module that shipped in v0.4.0; behind the same `recorder` Cargo feature (default-on for the released binary). Default output is stdout; pass `-o trace.json` for a file. The `auto` backend cascades portal → evdev. Capabilities schema's `extras.record.supported` flips to `true` when the binary was built with the recorder feature; `source` stays `null` because the runtime cascade decides between portal and evdev when the recording starts. The new replay command (consuming a captured trace and dispatching through the existing `Backend` trait) is a separate follow-up.
-- `wdotool prime` is a long-running foreground command that creates and holds the wlroots `virtual_keyboard` + `virtual_pointer` alive on the compositor's seat until SIGINT or SIGTERM. Prints `ready` to stdout once the devices are up, then blocks. Two payoffs: scripts running many wdotool ops in sequence avoid per-call virtual-device creation latency, and integration test harnesses get a stable seat-cap that observer clients can bind to without race. Always uses the wlroots backend, since it's the only one with long-lived virtual devices to hold.
+- `wdotool record [--output FILE] [--max-duration SEC] [--backend portal|evdev|simulated|auto]` captures user input until Ctrl-C (or the duration elapses) and writes the events as JSON. Built on the `wdotool_core::recorder` module that shipped in v0.4.0; behind the same `recorder` Cargo feature (default-on for the released binary). Default output is stdout; pass `-o trace.json` for a file. The `auto` backend cascades portal → evdev. Capabilities schema's `extras.record.supported` flips to `true` when the binary was built with the recorder feature; `source` stays `null` because the runtime cascade decides between portal and evdev when the recording starts.
 - `wdotool replay <file> [--speed FLOAT]` reads a previously captured trace JSON (use `-` for stdin) and dispatches each `RecEvent` through the active backend. Closes the loop with `wdotool record`: capture once, replay anywhere. Reproduces timing using the trace's `Gap` events; `--speed 2.0` plays at twice the original speed, `--speed 0.5` at half. Behind the same `recorder` Cargo feature as record. The replay path uses the existing keysym / mouse-button / scroll helpers, so modifier ordering and the xdotool-compatible press / release sequence are reused verbatim.
+- `wdotool prime` is a long-running foreground command that creates and holds the wlroots `virtual_keyboard` + `virtual_pointer` alive on the compositor's seat until SIGINT or SIGTERM. Prints `ready` to stdout once the devices are up, then blocks. Two payoffs: scripts running many wdotool ops in sequence avoid per-call virtual-device creation latency, and integration test harnesses get a stable seat-cap that observer clients can bind to without race. Always uses the wlroots backend, since it's the only one with long-lived virtual devices to hold.
+- New `Backend::mouse_move_to_output(output, x, y)` trait method with a default implementation that mimics today's `--output` translation behavior (look up the output, add its origin to the user-supplied coords, call `mouse_move` with `absolute = true`). The wlroots backend overrides this to bind a per-output `virtual_pointer` via `create_virtual_pointer_with_output` so cursor placement on multi-monitor setups lands on the right output. Closes [#22](https://github.com/cushycush/wdotool/issues/22).
+- Layer 3 round-trip test harness: a new workspace crate `wdotool-test-harness` ships a `HeadlessSway` runner and `wdotool-observer` binary (a small Wayland client built on `wayland-client` + `xkbcommon` that prints received input events to stdout). Integration tests in `wdotool/tests/cli_roundtrip.rs` boot sway with `WLR_BACKENDS=headless`, spawn the observer, run wdotool against the same display, and assert on what events the compositor actually delivered. CI installs sway with `WLR_RENDERER=pixman` (no GPU on GitHub runners) and runs the suite on every PR. Caught one real wdotool bug while writing the suite, see Fixed.
+- 60+ new mock-backend integration tests in `wdotool/tests/cli_*.rs` covering every CLI subcommand. Drives `dispatch()` directly against an in-process `MockBackend` (in `wdotool-core/src/backend/mock.rs` behind a new `testing` Cargo feature) and asserts on the exact `BackendCall` sequence + captured stdout/stderr + exit code. To make this possible, `dispatch()` moved from `wdotool/src/main.rs` into `wdotool/src/lib.rs` and now takes a `DispatchCtx { backend, env, stdout, stderr }`, returning a structured `ExitCode` instead of calling `process::exit`. Test architecture documented in `docs/testing.md`.
+
+### Changed
+- `Backend` trait now provides `mouse_move_to_output` (new method with a default implementation, see Added). Existing implementors compile unchanged. This is a minor-bumpable API addition under semver, hence v0.5.0 rather than v0.4.1.
 
 ### Fixed
 - wlroots backend: every input op (`do_key`, `do_type_text`, `do_mouse_move`, `do_mouse_button`, `do_scroll`) now does a `queue.roundtrip()` after sending its protocol messages, before returning to the caller. Without this, a fast wdotool process could exit and destroy its virtual devices before the compositor had finished processing the in-flight events, silently dropping them. Caught by the new Layer 3 round-trip integration tests against headless sway.
+- `mousemove --relative -10 -5` and `scroll -1.5 2.25` now work. clap was rejecting negative numbers as positional args because they parsed as flags; added `allow_negative_numbers = true` to those subcommands. Caught by the new Layer 2 tests for the pointer surface.
 
 ## [0.4.0] — 2026-04-26
 
@@ -137,7 +146,11 @@ Initial release.
 - GNOME window backend is not yet implemented.
 - `type_text` Unicode support is full on wlroots (transient keymap) but best-effort on libei/uinput (bounded by the compositor's active keymap).
 
-[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/cushycush/wdotool/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/cushycush/wdotool/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/cushycush/wdotool/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/cushycush/wdotool/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/cushycush/wdotool/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/cushycush/wdotool/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/cushycush/wdotool/compare/v0.1.2...v0.1.3
