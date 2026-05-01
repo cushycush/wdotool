@@ -236,4 +236,21 @@ pub enum Command {
     /// time). Only the wlroots backend has long-lived virtual
     /// devices; this command always picks it.
     Prime,
+
+    /// Replay a previously captured input trace. Reads a JSON file
+    /// (or `-` for stdin) of `RecEvent`s produced by `wdotool record`
+    /// and dispatches each event through the active backend.
+    /// Reproduces the original timing using the trace's `Gap` events;
+    /// pass `--speed <multiplier>` to scale (`2.0` = twice as fast,
+    /// `0.5` = half).
+    #[cfg(feature = "recorder")]
+    Replay {
+        /// Path to the captured trace JSON. Use `-` to read from stdin.
+        file: String,
+        /// Multiplier for `Gap` durations. 1.0 plays back at the
+        /// captured speed; >1 is faster, <1 is slower. The wall-clock
+        /// time of the trace is approximately `original / speed`.
+        #[arg(long, default_value_t = 1.0)]
+        speed: f64,
+    },
 }

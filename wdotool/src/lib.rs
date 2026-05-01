@@ -17,6 +17,8 @@ pub mod cli;
 pub mod diag;
 #[cfg(feature = "recorder")]
 pub mod record;
+#[cfg(feature = "recorder")]
+pub mod replay;
 
 use std::io::Write;
 use std::time::Duration;
@@ -391,6 +393,10 @@ pub async fn dispatch(ctx: &mut DispatchCtx<'_>, cmd: Command) -> Result<ExitCod
             // dispatch and runs its own loop.
             unreachable!("Prime short-circuits before dispatch");
         }
+        #[cfg(feature = "recorder")]
+        Command::Replay { file, speed } => {
+            replay::run(ctx.backend, &file, speed).await?;
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -464,7 +470,7 @@ fn resolve_type_input(file: Option<String>, text: Option<String>) -> Result<Stri
 
 // Press modifiers, then the key, then release in reverse — matches xdotool
 // ordering so scripts relying on this behaviour continue to work.
-async fn run_key(backend: &dyn Backend, chain: &str, dir: KeyDirection) -> Result<()> {
+pub(crate) async fn run_key(backend: &dyn Backend, chain: &str, dir: KeyDirection) -> Result<()> {
     let parsed = keysym::parse_chain(chain)?;
     match dir {
         KeyDirection::Press => {
