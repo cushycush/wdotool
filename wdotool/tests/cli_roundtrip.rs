@@ -16,15 +16,29 @@
 
 #![cfg(target_os = "linux")]
 
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use wdotool_test_harness::{HarnessError, HeadlessSway, Observer};
 
+/// Process-wide serialization for the round-trip suite. Each test
+/// boots its own sway compositor, and running several at once on a
+/// CI runner has them fighting for CPU and tripping `wait_for_ready`
+/// timeouts. CI passes `--test-threads=1`, but `cargo test --workspace`
+/// locally defaults to parallel and was flaking. Holding this mutex
+/// across the lifetime of each test makes the suite serial regardless
+/// of how it's invoked.
+static SUITE_LOCK: Mutex<()> = Mutex::new(());
+
 /// Boot a fresh sway session, spawn the observer inside it, wait for
 /// the surface to be ready, and drain prelude noise (modifiers,
 /// keyboard_enter, pointer_enter). Returns None when sway isn't
-/// installed so the calling test can skip itself.
-fn fresh_session() -> Option<(HeadlessSway, Observer)> {
+/// installed so the calling test can skip itself. The returned guard
+/// keeps `SUITE_LOCK` held for the test's duration.
+fn fresh_session() -> Option<(HeadlessSway, Observer, MutexGuard<'static, ()>)> {
+    // PoisonError can happen if a previous test panicked; we don't
+    // care, the lock is just a cross-test serializer.
+    let guard = SUITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let sway = match HeadlessSway::start() {
         Ok(s) => s,
         Err(HarnessError::SwayUnavailable(_)) => {
@@ -46,7 +60,7 @@ fn fresh_session() -> Option<(HeadlessSway, Observer)> {
         .wait_for_ready(Duration::from_secs(30))
         .expect("observer reached ready");
     let _ = observer.collect_events(Duration::from_millis(50));
-    Some((sway, observer))
+    Some((sway, observer, guard))
 }
 
 /// Filter event lines to just the ones with the given prefix, for
@@ -88,7 +102,7 @@ fn parse_key_line(line: &str) -> Option<(u32, &str, &str)> {
 
 #[test]
 fn observer_reaches_ready_inside_headless_sway() {
-    let Some((_sway, _observer)) = fresh_session() else {
+    let Some((_sway, _observer, _guard)) = fresh_session() else {
         return;
     };
 }
@@ -99,7 +113,7 @@ fn observer_reaches_ready_inside_headless_sway() {
 
 #[test]
 fn key_a_round_trips_through_wlroots_backend() {
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway.run_wdotool(&["key", "a"]).expect("run wdotool");
@@ -118,7 +132,7 @@ fn key_a_round_trips_through_wlroots_backend() {
 
 #[test]
 fn key_ctrl_shift_a_emits_modifiers_in_xdotool_order() {
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway
@@ -164,7 +178,7 @@ fn keydown_then_keyup_round_trip_holds_then_releases() {
     // wdotool sends a stray release at process exit (or fails to
     // send the release on keyup) would surface here as either an
     // unexpected release or a missing one.
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
 
@@ -200,7 +214,7 @@ fn type_hello_arrives_as_individual_characters() {
     // a `keymap_changed` event somewhere in the prelude proving the
     // injection happened. The keysym name in each line should match
     // the literal char.
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway
@@ -280,7 +294,7 @@ fn mousemove_absolute_lands_pointer_at_coords() {
     // We test "approximately" because compositors may shift coords by
     // small amounts during cursor handling. A tolerance of a few
     // pixels is fine.
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway
@@ -312,7 +326,7 @@ fn mousemove_relative_emits_motion_delta() {
     // (dx, dy) should land at (start + dx, start + dy). We use this
     // to verify the relative path actually adds rather than
     // overwrites.
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
 
@@ -349,7 +363,7 @@ fn mousemove_relative_emits_motion_delta() {
 #[test]
 fn click_1_emits_left_button_press_release() {
     // Linux button code 272 = BTN_LEFT (xdotool's button 1).
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway.run_wdotool(&["click", "1"]).expect("run wdotool");
@@ -373,7 +387,7 @@ fn click_1_emits_left_button_press_release() {
 #[ignore = "headless-sway: see mousemove_absolute_lands_pointer_at_coords for explanation"]
 #[test]
 fn mousedown_then_mouseup_emit_press_then_release() {
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
 
@@ -413,7 +427,7 @@ fn mousedown_then_mouseup_emit_press_then_release() {
 #[ignore = "headless-sway: see mousemove_absolute_lands_pointer_at_coords for explanation"]
 #[test]
 fn scroll_positive_dy_emits_vertical_axis_with_positive_value() {
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway
@@ -439,7 +453,7 @@ fn scroll_negative_dy_emits_vertical_axis_with_negative_value() {
     // Symmetric to the positive case. Catches a sign-flip bug in
     // wlroots' scroll path that wouldn't surface in Layer 2 (which
     // just asserts the value reaches the backend unchanged).
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway
@@ -462,7 +476,7 @@ fn scroll_negative_dy_emits_vertical_axis_with_negative_value() {
 #[ignore = "headless-sway: see mousemove_absolute_lands_pointer_at_coords for explanation"]
 #[test]
 fn scroll_horizontal_axis_routes_to_horizontal_label() {
-    let Some((sway, observer)) = fresh_session() else {
+    let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
     let out = sway

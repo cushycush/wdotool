@@ -41,7 +41,7 @@ use tempfile::TempDir;
 static SESSION_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Top-level error type. Tests pattern-match on the variants so
-/// "sway is not installed" gets turned into a skip rather than a
+/// "compositor is not installed" gets turned into a skip rather than a
 /// failure.
 #[derive(Debug)]
 pub enum HarnessError {
@@ -54,6 +54,13 @@ pub enum HarnessError {
     SwayStartTimeout,
     /// Sway exited before becoming ready. Stderr is captured.
     SwayExitedEarly { stderr: String },
+    /// `weston` is not on PATH. Same skip-the-test treatment as
+    /// `SwayUnavailable`.
+    WestonUnavailable(std::io::Error),
+    /// Weston started but never created a socket inside the timeout.
+    WestonStartTimeout,
+    /// Weston exited before becoming ready. Stderr is captured.
+    WestonExitedEarly { stderr: String },
     /// Spawn failure for `wdotool-observer` or `wdotool` itself.
     SpawnFailed(std::io::Error),
     /// Observer never emitted `ready` within the timeout.
@@ -74,6 +81,16 @@ impl std::fmt::Display for HarnessError {
             }
             Self::SwayExitedEarly { stderr } => {
                 write!(f, "sway exited before becoming ready. stderr: {stderr}")
+            }
+            Self::WestonUnavailable(e) => {
+                write!(f, "weston is not available (install weston): {e}")
+            }
+            Self::WestonStartTimeout => write!(
+                f,
+                "weston did not create its socket within the start timeout"
+            ),
+            Self::WestonExitedEarly { stderr } => {
+                write!(f, "weston exited before becoming ready. stderr: {stderr}")
             }
             Self::SpawnFailed(e) => write!(f, "failed to spawn child process: {e}"),
             Self::ObserverNotReady => write!(f, "observer did not become ready within timeout"),
@@ -216,47 +233,13 @@ impl HeadlessSway {
     /// and [`run_wdotool`](Self::run_wdotool); call manually for any
     /// additional child you spawn yourself.
     pub fn apply_env(&self, cmd: &mut Command) {
-        cmd.env("XDG_RUNTIME_DIR", self.runtime_dir.path());
-        cmd.env("WAYLAND_DISPLAY", &self.display_name);
-        // Strip a potentially conflicting parent session.
-        cmd.env_remove("DISPLAY");
-        cmd.env_remove("WAYLAND_SOCKET");
+        apply_env_to(cmd, self.runtime_dir.path(), &self.display_name);
     }
 
     /// Spawn the `wdotool-observer` binary inside this compositor and
     /// return a handle to read its event stream.
     pub fn spawn_observer(&self) -> Result<Observer, HarnessError> {
-        // Cargo populates CARGO_BIN_EXE_<name> for integration tests.
-        // For non-test callers (e.g. a debug script), fall back to
-        // looking for the binary next to the current exe.
-        let bin = std::env::var_os("CARGO_BIN_EXE_wdotool-observer")
-            .map(PathBuf::from)
-            .or_else(default_observer_path)
-            .ok_or_else(|| {
-                HarnessError::SpawnFailed(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "could not locate wdotool-observer binary",
-                ))
-            })?;
-
-        let mut cmd = Command::new(bin);
-        self.apply_env(&mut cmd);
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        let mut child = cmd.spawn().map_err(HarnessError::SpawnFailed)?;
-
-        let stdout = child.stdout.take().expect("piped");
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines().map_while(Result::ok) {
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        });
-
-        Ok(Observer { child, lines: rx })
+        spawn_observer_with(self.runtime_dir.path(), &self.display_name)
     }
 
     /// Run `wdotool <args>` against this compositor, forcing the
@@ -265,24 +248,7 @@ impl HeadlessSway {
     /// completed [`std::process::Output`] so tests can assert on
     /// stdout, stderr, and exit status.
     pub fn run_wdotool(&self, args: &[&str]) -> Result<std::process::Output, HarnessError> {
-        let bin = std::env::var_os("CARGO_BIN_EXE_wdotool")
-            .map(PathBuf::from)
-            .or_else(default_wdotool_path)
-            .ok_or_else(|| {
-                HarnessError::SpawnFailed(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "could not locate wdotool binary",
-                ))
-            })?;
-
-        let mut cmd = Command::new(bin);
-        self.apply_env(&mut cmd);
-        cmd.args(["--backend", "wlroots"]);
-        cmd.args(args);
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        let output = cmd.output().map_err(HarnessError::SpawnFailed)?;
-        Ok(output)
+        run_wdotool_with(self.runtime_dir.path(), &self.display_name, args)
     }
 }
 
@@ -291,6 +257,194 @@ impl Drop for HeadlessSway {
         let _ = self.sway.kill();
         let _ = self.sway.wait();
     }
+}
+
+/// A running weston compositor with its `headless` backend, a private
+/// `XDG_RUNTIME_DIR`, and a unique `WAYLAND_DISPLAY` socket. Drop kills
+/// weston and cleans up. Same shape as [`HeadlessSway`]; round-trip
+/// tests against weston are useful to check whether the seat-cap race
+/// that affects the wlroots-headless backend behaves the same way under
+/// weston-headless.
+pub struct HeadlessWeston {
+    runtime_dir: TempDir,
+    display_name: String,
+    weston: Child,
+}
+
+impl HeadlessWeston {
+    /// Spawn weston with the `headless` backend and wait for its
+    /// Wayland socket to appear. Returns `Err(WestonUnavailable)` when
+    /// weston isn't on `PATH`.
+    pub fn start() -> Result<Self, HarnessError> {
+        Self::start_with(StartOptions::default())
+    }
+
+    pub fn start_with(opts: StartOptions) -> Result<Self, HarnessError> {
+        let runtime_dir = tempfile::Builder::new()
+            .prefix("wdotool-headless-weston-")
+            .tempdir()?;
+        let _ = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+        // Empty config dir so weston ignores any host-wide weston.ini
+        // and runs with sane defaults. Living inside the same tempdir
+        // means it gets cleaned up on Drop.
+        let config_dir = runtime_dir.path().join("config");
+        std::fs::create_dir_all(&config_dir)?;
+
+        let mut cmd = Command::new("weston");
+        cmd.env("XDG_RUNTIME_DIR", runtime_dir.path())
+            .env("XDG_CONFIG_HOME", &config_dir)
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("WAYLAND_SOCKET")
+            .env_remove("DISPLAY");
+        cmd.arg("--backend=headless");
+        // Cap output count via flag rather than env var; weston exposes
+        // it directly.
+        cmd.arg(format!("--width={}", 1280));
+        cmd.arg(format!("--height={}", 720));
+        if opts.outputs > 1 {
+            // weston headless creates one output by default. Multi-
+            // output isn't a flag we use yet; if a test needs it,
+            // we'll add `--multi-output` or whatever weston supports.
+        }
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::piped());
+
+        let mut weston = cmd.spawn().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                HarnessError::WestonUnavailable(e)
+            } else {
+                HarnessError::SpawnFailed(e)
+            }
+        })?;
+
+        let deadline = Instant::now() + opts.start_timeout;
+        loop {
+            if let Some(name) = find_wayland_socket(runtime_dir.path())? {
+                return Ok(Self {
+                    runtime_dir,
+                    display_name: name,
+                    weston,
+                });
+            }
+            if let Some(_status) = weston.try_wait()? {
+                let mut stderr = String::new();
+                if let Some(mut e) = weston.stderr.take() {
+                    use std::io::Read;
+                    let _ = e.read_to_string(&mut stderr);
+                }
+                return Err(HarnessError::WestonExitedEarly { stderr });
+            }
+            if Instant::now() > deadline {
+                let _ = weston.kill();
+                let _ = weston.wait();
+                let mut stderr = String::new();
+                if let Some(mut e) = weston.stderr.take() {
+                    use std::io::Read;
+                    let _ = e.read_to_string(&mut stderr);
+                }
+                eprintln!("weston start timeout. captured stderr:\n{stderr}");
+                return Err(HarnessError::WestonStartTimeout);
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    pub fn runtime_dir(&self) -> &Path {
+        self.runtime_dir.path()
+    }
+
+    pub fn display(&self) -> &str {
+        &self.display_name
+    }
+
+    pub fn apply_env(&self, cmd: &mut Command) {
+        apply_env_to(cmd, self.runtime_dir.path(), &self.display_name);
+    }
+
+    pub fn spawn_observer(&self) -> Result<Observer, HarnessError> {
+        spawn_observer_with(self.runtime_dir.path(), &self.display_name)
+    }
+
+    pub fn run_wdotool(&self, args: &[&str]) -> Result<std::process::Output, HarnessError> {
+        run_wdotool_with(self.runtime_dir.path(), &self.display_name, args)
+    }
+}
+
+impl Drop for HeadlessWeston {
+    fn drop(&mut self) {
+        let _ = self.weston.kill();
+        let _ = self.weston.wait();
+    }
+}
+
+// ============================================================
+// Shared helpers used by both HeadlessSway and HeadlessWeston. These
+// were inline on HeadlessSway before HeadlessWeston existed; pulled
+// out so the two compositor structs don't repeat identical method
+// bodies.
+// ============================================================
+
+fn apply_env_to(cmd: &mut Command, runtime_dir: &Path, display: &str) {
+    cmd.env("XDG_RUNTIME_DIR", runtime_dir);
+    cmd.env("WAYLAND_DISPLAY", display);
+    cmd.env_remove("DISPLAY");
+    cmd.env_remove("WAYLAND_SOCKET");
+}
+
+fn spawn_observer_with(runtime_dir: &Path, display: &str) -> Result<Observer, HarnessError> {
+    let bin = std::env::var_os("CARGO_BIN_EXE_wdotool-observer")
+        .map(PathBuf::from)
+        .or_else(default_observer_path)
+        .ok_or_else(|| {
+            HarnessError::SpawnFailed(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "could not locate wdotool-observer binary",
+            ))
+        })?;
+
+    let mut cmd = Command::new(bin);
+    apply_env_to(&mut cmd, runtime_dir, display);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(HarnessError::SpawnFailed)?;
+
+    let stdout = child.stdout.take().expect("piped");
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    Ok(Observer { child, lines: rx })
+}
+
+fn run_wdotool_with(
+    runtime_dir: &Path,
+    display: &str,
+    args: &[&str],
+) -> Result<std::process::Output, HarnessError> {
+    let bin = std::env::var_os("CARGO_BIN_EXE_wdotool")
+        .map(PathBuf::from)
+        .or_else(default_wdotool_path)
+        .ok_or_else(|| {
+            HarnessError::SpawnFailed(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "could not locate wdotool binary",
+            ))
+        })?;
+
+    let mut cmd = Command::new(bin);
+    apply_env_to(&mut cmd, runtime_dir, display);
+    cmd.args(["--backend", "wlroots"]);
+    cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.output().map_err(HarnessError::SpawnFailed)
 }
 
 /// Knobs for [`HeadlessSway::start_with`]. Defaults are the right
