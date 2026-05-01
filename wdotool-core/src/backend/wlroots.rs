@@ -393,10 +393,16 @@ fn worker_main(
                     dir,
                     &mut mods_depressed,
                 );
+                // Same rationale as MouseMove below: roundtrip before
+                // reply so the compositor can't drop the key event
+                // when the wdotool process exits and destroys the
+                // virtual_keyboard.
+                let _ = queue.roundtrip(&mut state);
                 let _ = reply.send(res);
             }
             Command::TypeText { text, delay, reply } => {
                 let res = do_type_text(&conn, &vk_obj, keymap.as_ref(), &text, delay);
+                let _ = queue.roundtrip(&mut state);
                 let _ = reply.send(res);
             }
             Command::MouseMove {
@@ -412,14 +418,24 @@ fn worker_main(
                 let _ = queue.dispatch_pending(&mut state);
                 let extent = state.primary_extent();
                 let res = do_mouse_move(&conn, &vp_obj, x, y, absolute, extent);
+                // Roundtrip so the compositor has fully processed the
+                // motion before we let the worker drop the
+                // virtual_pointer at process exit. Without this, a
+                // short-lived wdotool process can race the device
+                // destruction past the motion request and the
+                // compositor silently discards it (caught via the
+                // headless-sway integration tests).
+                let _ = queue.roundtrip(&mut state);
                 let _ = reply.send(res);
             }
             Command::MouseButton { btn, dir, reply } => {
                 let res = do_mouse_button(&conn, &vp_obj, btn, dir);
+                let _ = queue.roundtrip(&mut state);
                 let _ = reply.send(res);
             }
             Command::Scroll { dx, dy, reply } => {
                 let res = do_scroll(&conn, &vp_obj, dx, dy);
+                let _ = queue.roundtrip(&mut state);
                 let _ = reply.send(res);
             }
             Command::ListWindows { reply } => {
