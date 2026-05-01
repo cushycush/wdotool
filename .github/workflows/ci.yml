@@ -72,11 +72,48 @@ jobs:
         # the schema-vs-types tests fail here.
         run: npm test
 
-  # TODO(integration): boot wdotool under a headless wlroots compositor.
-  # First attempt used `cage` from Ubuntu 22.04 (0.1.4), which exited code
-  # 1 with no output under WLR_BACKENDS=headless on a GitHub runner — not
-  # enough signal to diagnose cheaply. Alternatives to explore later:
-  #   - labwc with -C /dev/null and WLR_BACKENDS=headless
-  #   - sway --headless with a minimal config
-  #   - a purpose-built test harness that binds the wlr protocols as
-  #     a server (mocks the compositor side, asserts our requests)
+  # Layer 3 round-trip tests: spin up a headless sway compositor for each
+  # test, spawn the wdotool-observer Wayland client inside it, drive
+  # wdotool against the same display, and assert on what events the
+  # compositor actually delivered to a real client. See docs/testing.md.
+  # Separate from `check` because it needs sway installed and is somewhat
+  # slower (real compositor startup per test, ~1s each).
+  headless-roundtrip:
+    name: round-trip (headless sway)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        # libxkbcommon + libwayland for the build, sway for the headless
+        # compositor the round-trip tests run inside.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev sway
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-roundtrip-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build workspace + tests
+        # Build everything once so the test step doesn't have to compile
+        # the test binaries from scratch on a cache miss.
+        run: cargo build --workspace --tests --locked
+
+      - name: Run round-trip tests
+        # WLR_RENDERER=pixman forces software rendering. GitHub runners
+        # have no GPU / DRM device, so wlroots' default GBM/EGL path
+        # won't initialize. Pixman is fine for headless: we never
+        # actually render anything visible.
+        env:
+          WLR_RENDERER: pixman
+        run: cargo test -p wdotool --test cli_roundtrip --locked
