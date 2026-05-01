@@ -182,33 +182,17 @@ pub async fn dispatch(ctx: &mut DispatchCtx<'_>, cmd: Command) -> Result<ExitCod
             x,
             y,
         } => {
-            // --output translates output-local coordinates to global
-            // before calling mouse_move_absolute. clap already rejects
-            // --output combined with --relative.
-            let (target_x, target_y) = match output {
-                Some(name) => {
-                    let outputs = ctx.backend.list_outputs().await?;
-                    if outputs.is_empty() {
-                        return Err(WdoError::InvalidArg(format!(
-                            "--output not supported: the {} backend does not enumerate outputs",
-                            ctx.backend.name()
-                        )));
-                    }
-                    let target = outputs.iter().find(|o| o.name == name).ok_or_else(|| {
-                        let available: Vec<&str> =
-                            outputs.iter().map(|o| o.name.as_str()).collect();
-                        WdoError::InvalidArg(format!(
-                            "no output named {name:?}; available: {}",
-                            available.join(", ")
-                        ))
-                    })?;
-                    (target.x + x, target.y + y)
-                }
-                None => (x, y),
-            };
-            ctx.backend
-                .mouse_move(target_x, target_y, !relative)
-                .await?;
+            // clap already rejects --output combined with --relative,
+            // so the two arms here are mutually exclusive. The
+            // --output path delegates to the trait's
+            // mouse_move_to_output method, which has a default impl
+            // that translates output-local coords to global; the
+            // wlroots backend overrides that default to bind a
+            // per-output virtual_pointer (fixes #22).
+            match output {
+                Some(name) => ctx.backend.mouse_move_to_output(&name, x, y).await?,
+                None => ctx.backend.mouse_move(x, y, !relative).await?,
+            }
         }
         Command::Click { button } => {
             ctx.backend
