@@ -131,6 +131,17 @@ enum Command {
         absolute: bool,
         reply: oneshot::Sender<Result<()>>,
     },
+    /// Move pointer using a per-output `virtual_pointer` bound to the
+    /// named output. The worker looks up (or lazily creates) the
+    /// per-output instance and sends `motion_absolute` against that
+    /// output's mode dimensions, so the cursor lands on the right
+    /// monitor regardless of which output is "primary".
+    MouseMoveToOutput {
+        output: String,
+        x: i32,
+        y: i32,
+        reply: oneshot::Sender<Result<()>>,
+    },
     MouseButton {
         btn: MouseButton,
         dir: KeyDirection,
@@ -375,6 +386,14 @@ fn worker_main(
     // threaded loop), so a plain u32 suffices.
     let mut mods_depressed: u32 = 0;
 
+    // Cache of per-output virtual_pointer instances. Built lazily on
+    // the first `mousemove --output <name>` call for each output;
+    // reused on subsequent calls. Keyed by output name (e.g. "DP-1").
+    // The default `vp_obj` (created above without an output binding)
+    // is what `mousemove` without --output uses; this cache only
+    // serves the per-output path. Closes #22.
+    let mut output_pointers: HashMap<String, vp::ZwlrVirtualPointerV1> = HashMap::new();
+
     // Command loop. Each command is followed by a short dispatch to drain
     // events that arrived in response (e.g., foreign-toplevel updates).
     loop {
@@ -425,6 +444,27 @@ fn worker_main(
                 // destruction past the motion request and the
                 // compositor silently discards it (caught via the
                 // headless-sway integration tests).
+                let _ = queue.roundtrip(&mut state);
+                let _ = reply.send(res);
+            }
+            Command::MouseMoveToOutput {
+                output,
+                x,
+                y,
+                reply,
+            } => {
+                let _ = queue.dispatch_pending(&mut state);
+                let res = do_mouse_move_to_output(
+                    &conn,
+                    &qh,
+                    &state,
+                    state.scratch.vp_mgr.as_ref(),
+                    state.scratch.seat.as_ref(),
+                    &mut output_pointers,
+                    &output,
+                    x,
+                    y,
+                );
                 let _ = queue.roundtrip(&mut state);
                 let _ = reply.send(res);
             }
@@ -761,6 +801,83 @@ fn do_mouse_move(
     } else {
         vp.motion(time, x as f64, y as f64);
     }
+    vp.frame();
+    conn.flush().map_err(wayland_io_err)?;
+    Ok(())
+}
+
+/// Per-output `motion_absolute`. Looks up (or lazily creates) a
+/// `virtual_pointer` bound to the named output via
+/// `create_virtual_pointer_with_output`, then sends `motion_absolute`
+/// against that output's mode dimensions. Without this, `mousemove
+/// --output DP-2 50 50` hits the wrong monitor because wlroots' default
+/// single-pointer interprets the extent against the primary output.
+/// Closes #22.
+#[allow(clippy::too_many_arguments)]
+fn do_mouse_move_to_output(
+    conn: &Connection,
+    qh: &QueueHandle<State>,
+    state: &State,
+    vp_mgr: Option<&vp_mgr::ZwlrVirtualPointerManagerV1>,
+    seat: Option<&wl_seat::WlSeat>,
+    output_pointers: &mut HashMap<String, vp::ZwlrVirtualPointerV1>,
+    output_name: &str,
+    x: i32,
+    y: i32,
+) -> Result<()> {
+    let vp_mgr = vp_mgr.ok_or(WdoError::NotSupported {
+        backend: NAME,
+        what:
+            "compositor does not expose zwlr_virtual_pointer_v1. Try --backend libei on GNOME/KDE",
+    })?;
+    let seat = seat.ok_or(WdoError::Backend {
+        backend: NAME,
+        source: "no wl_seat available".into(),
+    })?;
+
+    // Find the matching output's wl_output proxy + mode dimensions.
+    let target = state
+        .outputs
+        .values()
+        .find(|s| s.name.as_deref() == Some(output_name))
+        .ok_or_else(|| {
+            let available: Vec<&str> = state
+                .outputs
+                .values()
+                .filter_map(|s| s.name.as_deref())
+                .collect();
+            WdoError::InvalidArg(format!(
+                "no output named {output_name:?}; available: {}",
+                available.join(", ")
+            ))
+        })?;
+    let proxy = target.proxy.as_ref().ok_or_else(|| WdoError::Backend {
+        backend: NAME,
+        source: format!("output {output_name} has no wl_output proxy").into(),
+    })?;
+    if target.width == 0 || target.height == 0 {
+        return Err(WdoError::Backend {
+            backend: NAME,
+            source: format!("output {output_name} has no mode dimensions yet").into(),
+        });
+    }
+
+    // Lazily create the per-output virtual_pointer on first use, then
+    // cache it for the lifetime of the worker. The vp_obj is a fresh
+    // proxy each time we call create_virtual_pointer_with_output, so
+    // we reuse a single instance per output to avoid leaking proxies.
+    let vp = output_pointers
+        .entry(output_name.to_string())
+        .or_insert_with(|| {
+            vp_mgr.create_virtual_pointer_with_output(Some(seat), Some(proxy), qh, ())
+        });
+
+    let time = millis_monotonic();
+    let x_extent = target.width;
+    let y_extent = target.height;
+    let xc = x.clamp(0, x_extent as i32) as u32;
+    let yc = y.clamp(0, y_extent as i32) as u32;
+    vp.motion_absolute(time, xc, yc, x_extent, y_extent);
     vp.frame();
     conn.flush().map_err(wayland_io_err)?;
     Ok(())
@@ -1431,6 +1548,17 @@ impl Backend for WlrootsBackend {
             x,
             y,
             absolute,
+            reply,
+        })
+        .await
+    }
+
+    async fn mouse_move_to_output(&self, output: &str, x: i32, y: i32) -> Result<()> {
+        let output = output.to_string();
+        self.send(|reply| Command::MouseMoveToOutput {
+            output,
+            x,
+            y,
             reply,
         })
         .await

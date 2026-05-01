@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::error::Result;
+use crate::error::{Result, WdoError};
 use crate::types::{
     Capabilities, KeyDirection, MouseButton, OutputInfo, WindowGeometry, WindowId, WindowInfo,
 };
@@ -34,6 +34,37 @@ pub trait Backend: Send + Sync {
     async fn mouse_move(&self, x: i32, y: i32, absolute: bool) -> Result<()>;
     async fn mouse_button(&self, btn: MouseButton, dir: KeyDirection) -> Result<()>;
     async fn scroll(&self, dx: f64, dy: f64) -> Result<()>;
+
+    /// Move the pointer to `(x, y)` interpreted as output-local
+    /// coordinates within the named output. The default implementation
+    /// looks up the output's origin via [`list_outputs`], translates
+    /// to global compositor coords, and falls through to
+    /// [`mouse_move`] with `absolute = true`. The wlroots backend
+    /// overrides this to bind a per-output `virtual_pointer` and send
+    /// `motion_absolute` against that output's mode dimensions
+    /// directly, since wlroots' single-pointer `motion_absolute` ties
+    /// the extent to the primary output (placing the cursor on the
+    /// wrong monitor for non-primary `--output` calls).
+    ///
+    /// [`list_outputs`]: Backend::list_outputs
+    /// [`mouse_move`]: Backend::mouse_move
+    async fn mouse_move_to_output(&self, output: &str, x: i32, y: i32) -> Result<()> {
+        let outputs = self.list_outputs().await?;
+        if outputs.is_empty() {
+            return Err(WdoError::InvalidArg(format!(
+                "--output not supported: the {} backend does not enumerate outputs",
+                self.name()
+            )));
+        }
+        let target = outputs.iter().find(|o| o.name == output).ok_or_else(|| {
+            let available: Vec<&str> = outputs.iter().map(|o| o.name.as_str()).collect();
+            WdoError::InvalidArg(format!(
+                "no output named {output:?}; available: {}",
+                available.join(", ")
+            ))
+        })?;
+        self.mouse_move(target.x + x, target.y + y, true).await
+    }
 
     async fn list_windows(&self) -> Result<Vec<WindowInfo>>;
     async fn active_window(&self) -> Result<Option<WindowInfo>>;
