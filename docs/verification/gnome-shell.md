@@ -83,6 +83,7 @@ Plus three special cells, run only once each rather than once per condition:
 | Token revoke + recovery (run "Revoke" in Settings → Privacy → Screen Sharing after first run, then `wdotool key a` again, expect a new consent dialog) | | |
 | Extension disable + re-enable (`gnome-extensions disable`, run a window op and confirm it errors cleanly, then `gnome-extensions enable` and confirm window ops come back without restarting Shell) | | |
 | Cross-workspace activation (move a window to a different workspace, then `wdotool windowactivate <id>` from your active workspace; expect the window to be raised and the workspace switched) | | |
+| wflow 5-step workflow (run any 5-step wflow from `examples/` that exercises key, type, click, focus, close; expect one consent dialog total, all 5 steps succeed) | | |
 
 ## What each operation should do
 
@@ -281,6 +282,17 @@ wdotool windowactivate "$id"
 ```
 
 Pass means you're now on workspace 2 with the gedit window focused. Workspace didn't change but the window says it's "activated" (lying), the extension errored, or focus went to the wrong window are all fails.
+
+### wflow 5-step workflow
+
+[wflow](https://github.com/cushycush/wflow) is the first library consumer of `wdotool-core`, and the canonical test that the consent flow batches across a real workflow rather than re-prompting every step. Install wflow (v0.6.0 or later, where the `wdotool-core` migration landed) and run any 5-step workflow from `examples/` that exercises key, type, click, focus, and close. Pick or write something GNOME-friendly (`gedit`, GNOME Text Editor, Files).
+
+```sh
+# pseudo-workflow: open a terminal, type a command, click, focus a window, close it
+wflow run path/to/test-workflow.kdl
+```
+
+Pass means exactly one consent dialog at the start, all five steps succeed, no further prompts. The two failure modes that matter: a second dialog mid-run (the session isn't being held open between ops), or a step silently no-ops because the cached input session got dropped.
 
 ## After you finish
 

@@ -219,16 +219,14 @@ The two most likely failure modes: step 4 doesn't re-prompt and just errors out 
 
 ### wflow 5-step workflow
 
-Once wflow itself migrates to `wdotool-core` as a library, this test becomes important: a real workflow should fire one consent dialog and then run silently. Until that wflow PR lands, this row is N/A.
-
-If you're running wflow off a branch that's already migrated:
+[wflow](https://github.com/cushycush/wflow) is the first library consumer of `wdotool-core`, and the canonical test that the consent flow batches across a real workflow rather than re-prompting every step. Install wflow (v0.6.0 or later, where the `wdotool-core` migration landed) and run any 5-step workflow from `examples/` that exercises key, type, click, focus, and close. `dev-setup.kdl` is a reasonable choice if you're on Hyprland-or-equivalent; pick or write something Plasma-friendly otherwise.
 
 ```sh
 # pseudo-workflow: open Konsole, type a command, click, focus a window, close it
 wflow run path/to/test-workflow.kdl
 ```
 
-Pass means exactly one consent dialog at the start, all five steps succeed, no further prompts.
+Pass means exactly one consent dialog at the start, all five steps succeed, no further prompts. The two failure modes that matter: a second dialog mid-run (the session isn't being held open between ops), or a step silently no-ops because the cached input session got dropped.
 
 ## After you finish
 
