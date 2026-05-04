@@ -66,7 +66,7 @@ pub struct InputCaps {
 #[serde(rename_all = "snake_case")]
 pub enum TypeUnicode {
     /// Arbitrary Unicode including the astral plane. Currently only
-    /// the wlroots backend, which uploads a transient xkb keymap.
+    /// the wlr-protocols backend, which uploads a transient xkb keymap.
     Full,
     /// Basic Multilingual Plane (BMP) characters work; astral chars
     /// (e.g. emoji beyond U+FFFF) are dropped.
@@ -186,7 +186,7 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
         extras: Extras {
             diag: true,
             // Tracks `wdotool outputs` and `mousemove --output`.
-            // wlroots flips this to true; KDE / GNOME / libei / uinput
+            // wlr-protocols flips this to true; KDE / GNOME / libei / uinput
             // emit false until each backend learns to enumerate
             // outputs from its own source (kwin script / Shell
             // extension / libei region / not-applicable).
@@ -207,11 +207,11 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
             json_output: true,
             // Tracks `wdotool getmouselocation`. Reflects the selected
             // backend's `pointer_position` capability bit, so KDE +
-            // GNOME emit `true`, libei / wlroots / uinput emit `false`.
+            // GNOME emit `true`, libei / wlr-protocols / uinput emit `false`.
             pointer_position: caps.pointer_position,
             // Tracks `wdotool getwindowgeometry`. KDE (kwin script
             // reading window.frameGeometry) and GNOME (Shell extension
-            // calling MetaWindow.get_frame_rect) emit `true`. wlroots
+            // calling MetaWindow.get_frame_rect) emit `true`. wlr-protocols
             // emits `false` because foreign-toplevel doesn't expose
             // geometry; libei and uinput have no window concept at
             // all.
@@ -244,7 +244,7 @@ pub fn report_json(env: &Environment, backend: &dyn Backend) -> serde_json::Valu
 fn backend_kind_label(kind: BackendKind) -> &'static str {
     match kind {
         BackendKind::Libei => "libei",
-        BackendKind::Wlroots => "wlroots",
+        BackendKind::WlrProtocols => "wlr-protocols",
         BackendKind::KdeDBus => "kde",
         BackendKind::GnomeExt => "gnome",
         BackendKind::Uinput => "uinput",
@@ -257,7 +257,7 @@ fn backend_kind_label(kind: BackendKind) -> &'static str {
 /// individual values, not the schema_version (the enum is stable).
 fn type_unicode_for(backend_name: &str) -> TypeUnicode {
     match backend_name {
-        "wlroots" => TypeUnicode::Full,
+        "wlr-protocols" => TypeUnicode::Full,
         "libei" | "kde" | "gnome" | "uinput" => TypeUnicode::AsciiOnly,
         _ => TypeUnicode::None,
     }
@@ -371,14 +371,14 @@ mod tests {
         // report should pass it through. Real libei would emit false.
         assert!(r.extras.pointer_position);
         // Same for window_geometry. KDE and GNOME emit true; libei,
-        // wlroots, and uinput emit false.
+        // wlr-protocols, and uinput emit false.
         assert!(r.extras.window_geometry);
         assert_eq!(r.platform.desktop.as_deref(), Some("GNOME"));
     }
 
     #[test]
-    fn type_unicode_is_full_only_on_wlroots() {
-        assert_eq!(type_unicode_for("wlroots"), TypeUnicode::Full);
+    fn type_unicode_is_full_only_on_wlr_protocols() {
+        assert_eq!(type_unicode_for("wlr-protocols"), TypeUnicode::Full);
         assert_eq!(type_unicode_for("libei"), TypeUnicode::AsciiOnly);
         assert_eq!(type_unicode_for("kde"), TypeUnicode::AsciiOnly);
         assert_eq!(type_unicode_for("gnome"), TypeUnicode::AsciiOnly);
@@ -390,11 +390,13 @@ mod tests {
     #[test]
     fn report_json_round_trips_through_serde() {
         let env = fake_env();
-        let backend = FakeBackend { name: "wlroots" };
+        let backend = FakeBackend {
+            name: "wlr-protocols",
+        };
         let value = report_json(&env, &backend);
         // schema_version pins to 1 in the JSON shape.
         assert_eq!(value["schema_version"], 1);
-        // type_unicode serializes as snake_case "full" for wlroots.
+        // type_unicode serializes as snake_case "full" for wlr-protocols.
         assert_eq!(value["input"]["type_unicode"], "full");
         // Closed enum values come through as their schema strings.
         assert_eq!(value["backend"]["kind"], "direct");
@@ -414,7 +416,7 @@ mod tests {
         let backend = FakeBackend { name: "gnome" };
         let r = report(&env, &backend);
         // Every entry should be one of the five known labels.
-        let known = ["libei", "wlroots", "kde", "gnome", "uinput"];
+        let known = ["libei", "wlr-protocols", "kde", "gnome", "uinput"];
         for entry in &r.backend.fallback_chain {
             assert!(
                 known.contains(&entry.as_str()),

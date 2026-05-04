@@ -29,7 +29,7 @@
       "properties": {
         "selected": {
           "type": "string",
-          "description": "Name of the backend currently in use. One of: libei, wlroots, kde, gnome, uinput. New backends added in future versions extend this list (open enum)."
+          "description": "Name of the backend currently in use. One of: libei, wlr-protocols, kde, gnome, uinput. New backends added in future versions extend this list (open enum)."
         },
         "kind": {
           "type": "string",
@@ -65,7 +65,7 @@
         "type_unicode": {
           "type": "string",
           "enum": ["full", "bmp_only", "ascii_only", "none"],
-          "description": "How well `type` handles non-ASCII text. `full` = arbitrary Unicode including astral plane (wlroots via transient keymap). `bmp_only` = Basic Multilingual Plane characters work, astral chars (e.g. emoji) are dropped. `ascii_only` = only ASCII works; non-ASCII chars are skipped with a warning (libei / kde / gnome / uinput, since the keymap is owned by the EIS server or the kernel). `none` = no text input."
+          "description": "How well `type` handles non-ASCII text. `full` = arbitrary Unicode including astral plane (wlr-protocols via transient keymap). `bmp_only` = Basic Multilingual Plane characters work, astral chars (e.g. emoji) are dropped. `ascii_only` = only ASCII works; non-ASCII chars are skipped with a warning (libei / kde / gnome / uinput, since the keymap is owned by the EIS server or the kernel). `none` = no text input."
         },
         "mouse_move_absolute": { "type": "boolean" },
         "mouse_move_relative": { "type": "boolean" },
@@ -107,7 +107,7 @@
         },
         "outputs": {
           "type": "boolean",
-          "description": "`wdotool outputs` and `mousemove --output <name>` work on the selected backend. wlroots emits `true` (uses `wl_output`); KDE, GNOME, libei, and uinput emit `false` until each backend wires up its own enumeration path. Independent of `wdotool outputs --json`, which is always available — this flag specifically tracks whether the result will be non-empty."
+          "description": "`wdotool outputs` and `mousemove --output <name>` work on the selected backend. wlr-protocols emits `true` (uses `wl_output`); KDE, GNOME, libei, and uinput emit `false` until each backend wires up its own enumeration path. Independent of `wdotool outputs --json`, which is always available — this flag specifically tracks whether the result will be non-empty."
         },
         "record": {
           "type": "object",
@@ -128,11 +128,11 @@
         },
         "pointer_position": {
           "type": "boolean",
-          "description": "Whether `wdotool getmouselocation` can read the compositor's current pointer position on the selected backend. KDE (kwin script) and GNOME (Shell extension) emit `true`; libei, wlroots, and uinput emit `false` because the relevant Wayland protocols are send-only."
+          "description": "Whether `wdotool getmouselocation` can read the compositor's current pointer position on the selected backend. KDE (kwin script) and GNOME (Shell extension) emit `true`; libei, wlr-protocols, and uinput emit `false` because the relevant Wayland protocols are send-only."
         },
         "window_geometry": {
           "type": "boolean",
-          "description": "Whether `wdotool getwindowgeometry` can read a window's frame position and size on the selected backend. KDE (kwin script reading `window.frameGeometry`) and GNOME (Shell extension calling `MetaWindow.get_frame_rect`) emit `true`; wlroots emits `false` because `zwlr_foreign_toplevel_management_v1` doesn't expose geometry, and libei and uinput have no window concept."
+          "description": "Whether `wdotool getwindowgeometry` can read a window's frame position and size on the selected backend. KDE (kwin script reading `window.frameGeometry`) and GNOME (Shell extension calling `MetaWindow.get_frame_rect`) emit `true`; wlr-protocols emits `false` because `zwlr_foreign_toplevel_management_v1` doesn't expose geometry, and libei and uinput have no window concept."
         }
       }
     },

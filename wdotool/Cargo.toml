@@ -65,9 +65,10 @@ extended-description = """\
 xdotool-compatible CLI for input automation on Wayland.
 
 Uses the protocols Wayland provides for this (libei via the XDG \
-RemoteDesktop portal, wlroots virtual-keyboard / virtual-pointer, \
-KWin scripting on KDE, a companion Shell extension on GNOME). Falls \
-back to /dev/uinput only when nothing better is available."""
+RemoteDesktop portal, the wlr-* virtual-keyboard / virtual-pointer \
+protocols, KWin scripting on KDE, a companion Shell extension on \
+GNOME). Falls back to /dev/uinput only when nothing better is \
+available."""
 license-file = ["../LICENSE-MIT", "0"]
 assets = [
     ["target/release/wdotool", "usr/bin/", "755"],

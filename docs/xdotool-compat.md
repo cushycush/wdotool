@@ -18,19 +18,19 @@ This page is the honest table. If you are porting a script and the command you w
 | xdotool command | wdotool | notes |
 | --- | --- | --- |
 | `key`, `keydown`, `keyup` | ✅ | All five backends |
-| `type` | ✅ | Full Unicode on wlroots via transient keymap; ASCII-only fallback elsewhere (the EIS server or the kernel owns the keymap) |
+| `type` | ✅ | Full Unicode on wlr-protocols via transient keymap; ASCII-only fallback elsewhere (the EIS server or the kernel owns the keymap) |
 | `mousemove` | ✅ | Both absolute and relative |
 | `mousemove_relative` | ✅ | `wdotool mousemove --relative` |
 | `click` | ✅ | xdotool indices: 1=left, 2=middle, 3=right, 8=back, 9=forward |
 | `mousedown`, `mouseup` | ✅ |  |
 | `mousewheeldown`, `mousewheelup` | ✅ | Use `wdotool scroll dx dy` |
-| `getmouselocation` | 🧪 | KDE (kwin script) and GNOME (Shell extension) both read the compositor's pointer position. libei / wlroots / uinput exit 1 with a clear message because the relevant Wayland protocols are send-only. Use your compositor's IPC there (`hyprctl cursorpos`, `swaymsg get_seats`) |
+| `getmouselocation` | 🧪 | KDE (kwin script) and GNOME (Shell extension) both read the compositor's pointer position. libei / wlr-protocols / uinput exit 1 with a clear message because the relevant Wayland protocols are send-only. Use your compositor's IPC there (`hyprctl cursorpos`, `swaymsg get_seats`) |
 
 ## Window actions
 
 | xdotool command | wdotool | notes |
 | --- | --- | --- |
-| `windowactivate` | ✅ | wlroots / kde / gnome backends |
+| `windowactivate` | ✅ | wlr-protocols / kde / gnome backends |
 | `windowclose` | ✅ |  |
 | `windowkill` | ✅ | Same as `windowclose` on Wayland |
 | `windowfocus` | ❌ | xdotool distinguishes focus from activate; wdotool currently only activates |
@@ -49,7 +49,7 @@ This page is the honest table. If you are porting a script and the command you w
 | `getwindowname` | ✅ | Prints the title of a window by id. Pair with `wdotool search` to get an id |
 | `getwindowpid` | ✅ | Prints the PID of a window by id. Exits 1 if the backend can't resolve a PID for that window (some compositors don't expose it) |
 | `getwindowclassname` | ✅ | Prints the Wayland app_id of a window by id (the closest equivalent to X11's WM_CLASS classname). Exits 1 if no app_id is set |
-| `getwindowgeometry` | 🧪 | KDE (kwin script reading `window.frameGeometry`) and GNOME (Shell extension calling `MetaWindow.get_frame_rect`) both implement it. wlroots' `zwlr_foreign_toplevel_management_v1` does not expose geometry, so the wlroots backend exits 1 with a clear message; libei and uinput likewise exit 1 |
+| `getwindowgeometry` | 🧪 | KDE (kwin script reading `window.frameGeometry`) and GNOME (Shell extension calling `MetaWindow.get_frame_rect`) both implement it. The wlr-protocols `zwlr_foreign_toplevel_management_v1` does not expose geometry, so the wlr-protocols backend exits 1 with a clear message; libei and uinput likewise exit 1 |
 
 ## Selection / interactive UI
 
@@ -90,7 +90,7 @@ xdotool ships a few shell-helper commands that don't map cleanly to a Wayland to
 - `wdotool diag` and `wdotool diag --copy` for environment introspection and bug-report capture.
 - `wdotool capabilities` for structured (JSON) introspection of what this build supports. Schema at [`capabilities-schema.json`](capabilities-schema.json).
 - `wdotool record` captures user input until Ctrl-C (or `--max-duration` elapses) and writes the events as JSON. Three capture sources: the XDG RemoteDesktop portal (libei in receiver mode, default on Plasma 6 / GNOME 46+), `/dev/input/event*` via evdev (works on any compositor if you're in the `input` group), and a deterministic test source. With no `--backend`, portal is tried first, then evdev. Built on `wdotool_core::recorder` so other Rust tools can consume the same capture stream as a library. Gated behind the `recorder` Cargo feature (default-on).
-- `wdotool outputs` (and `--json`) for monitor enumeration. Pair with `wdotool mousemove --output DP-1 100 100` to position the pointer in output-local coordinates instead of the global compositor space, which matters on multi-monitor setups. wlroots-only today; KDE / GNOME / libei still need their per-backend enumeration path wired up.
+- `wdotool outputs` (and `--json`) for monitor enumeration. Pair with `wdotool mousemove --output DP-1 100 100` to position the pointer in output-local coordinates instead of the global compositor space, which matters on multi-monitor setups. wlr-protocols-only today; KDE / GNOME / libei still need their per-backend enumeration path wired up.
 - A library API (`wdotool-core` on crates.io) for embedding the engine in other Rust tools.
 - Per-backend Cargo features so library consumers can drop the backends they don't need (uinput especially, for sandboxed builds).
 - Portal `restore_token` caching so libei users don't see a consent dialog on every command.

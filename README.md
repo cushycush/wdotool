@@ -8,7 +8,7 @@ Input automation for Wayland. Send keystrokes, move the mouse, focus and close w
 
 ## Why
 
-If you've been wanting xdotool on Wayland, this is the closest thing. wdotool covers most of the same operations (key, type, mouse, scroll, search, focus) using the protocols Wayland actually provides for this work: libei via the XDG RemoteDesktop portal, wlroots virtual-keyboard and virtual-pointer, KWin scripting on KDE, and a Shell extension on GNOME. It respects compositor focus and permissions; it does not bypass them like ydotool does with `/dev/uinput`.
+If you've been wanting xdotool on Wayland, this is the closest thing. wdotool covers most of the same operations (key, type, mouse, scroll, search, focus) using the protocols Wayland actually provides for this work: libei via the XDG RemoteDesktop portal, the wlr-* virtual-keyboard and virtual-pointer protocols on Sway / Hyprland / river / Wayfire (no runtime dep on the wlroots library; just the protocol family those compositors implement), KWin scripting on KDE, and a Shell extension on GNOME. It respects compositor focus and permissions; it does not bypass them like ydotool does with `/dev/uinput`.
 
 "Closest thing" is doing real work in that sentence. wdotool is **not** a drop-in xdotool replacement. The CLI surface aims to be argv-compatible for the common commands so existing scripts can port without much editing, but full parity is not promised. See [`docs/xdotool-compat.md`](docs/xdotool-compat.md) for an honest table of what works, what does not, and what is intentionally out of scope.
 
@@ -16,10 +16,10 @@ For comparison with the alternatives: **xdotool** is X11-only and does not work 
 
 ## Status
 
-Early but usable. Actively tested on Hyprland + wlroots. The KDE and GNOME backends are both experimental: code paths compile and unit tests pass, but neither has been smoke-tested end-to-end on real hardware of the target desktop yet. If you run Plasma 6, [issue #1](https://github.com/cushycush/wdotool/issues/1) tracks verification — `docs/verification/kde-plasma-6.md` is a 30–45 minute checklist that closes it. Same shape for GNOME at [issue #4](https://github.com/cushycush/wdotool/issues/4).
+Early but usable. Actively tested on Hyprland (and the wlr-* protocol family generally). The KDE and GNOME backends are both experimental: code paths compile and unit tests pass, but neither has been smoke-tested end-to-end on real hardware of the target desktop yet. If you run Plasma 6, [issue #1](https://github.com/cushycush/wdotool/issues/1) tracks verification, with `docs/verification/kde-plasma-6.md` as a 30 to 45 minute checklist that closes it. Same shape for GNOME at [issue #4](https://github.com/cushycush/wdotool/issues/4).
 
-| Feature                         | libei    | wlroots | kde       | gnome     | uinput   |
-| ------------------------------- | -------- | ------- | --------- | --------- | -------- |
+| Feature                         | libei    | wlr-protocols | kde       | gnome     | uinput   |
+| ------------------------------- | -------- | ------------- | --------- | --------- | -------- |
 | `key` / `keydown` / `keyup`     | ✅       | ✅      | ✅        | ✅        | ✅       |
 | `type` (Unicode via keymap)     | partial¹ | ✅      | partial¹  | partial¹  | partial² |
 | `mousemove` (relative)          | ✅       | ✅      | ✅        | ✅        | ✅       |
@@ -91,7 +91,7 @@ wdotool key ctrl+c                        # send Ctrl+C
 wdotool keydown shift                     # press and hold Shift
 wdotool keyup shift                       # release it
 
-wdotool type "hello 世界 €"               # Unicode works on wlroots
+wdotool type "hello 世界 €"               # Unicode works on wlr-protocols
 wdotool type --delay 30 "slow typing"     # 30ms between chars
 wdotool type --file script.txt            # read text from a file
 echo "hello" | wdotool type --file -      # read from stdin
@@ -132,7 +132,8 @@ kill %1                                   # release devices when done
 Global flags:
 
 ```sh
---backend <libei|wlroots|kde|gnome|uinput>   # force a specific backend
+--backend <libei|wlr-protocols|kde|gnome|uinput>   # force a specific backend
+                                             # ("wlroots" still accepted as an alias for "wlr-protocols")
 -v, --verbose                                # show detection + bind logs
 ```
 
@@ -154,14 +155,16 @@ rm ~/.local/state/wdotool/portal.token
 
 **Requirements:**
 - `xdg-desktop-portal` + a backend that exports `org.freedesktop.portal.RemoteDesktop`. `xdg-desktop-portal-gnome` (GNOME 46+) and `xdg-desktop-portal-kde` (KDE Plasma 6) both ship it.
-- On Hyprland, `xdg-desktop-portal-hyprland` 1.3.11 does **not** yet expose RemoteDesktop. Use the wlroots backend instead.
+- On Hyprland, `xdg-desktop-portal-hyprland` 1.3.11 does **not** yet expose RemoteDesktop. Use the wlr-protocols backend instead.
 
-### wlroots
+### wlr-protocols
 
-Binds `zwp_virtual_keyboard_v1`, `zwlr_virtual_pointer_v1`, and `zwlr_foreign_toplevel_management_v1` directly. Uploads a transient xkb keymap at `type` time (one keycode per unique character as a Level-0 Unicode keysym) — this is how arbitrary Unicode works without a server-side keymap change. Tracks `wl_output` modes so `motion_absolute` coordinates are real pixels on the primary output. **Preferred on Sway, Hyprland, river, Wayfire.**
+Binds `zwp_virtual_keyboard_v1`, `zwlr_virtual_pointer_v1`, and `zwlr_foreign_toplevel_management_v1` directly. Uploads a transient xkb keymap at `type` time (one keycode per unique character as a Level-0 Unicode keysym), which is how arbitrary Unicode works without a server-side keymap change. Tracks `wl_output` modes so `motion_absolute` coordinates are real pixels on the primary output. **Preferred on Sway, Hyprland, river, Wayfire.**
+
+The backend used to be called "wlroots" because the wlr-* protocol family lives in the wlr-protocols upstream. The name was misleading: the backend has no runtime dependency on the wlroots library, just on the protocols, which Sway, river, Wayfire, and Hyprland all implement independently. Renamed to `wlr-protocols` in v0.6.0; `--backend wlroots` is still accepted as an alias.
 
 **Requirements:**
-- A wlroots-based compositor that exposes the three protocols above. Sway, Hyprland, river, and Wayfire all do by default.
+- A compositor that exposes the three wlr-* protocols above. Sway, Hyprland, river, and Wayfire all do by default.
 
 ### kde
 
@@ -189,7 +192,7 @@ Pairs libei (for input, via GNOME's RemoteDesktop portal) with a companion GNOME
 
 ### uinput
 
-Creates a virtual input device via `/dev/uinput` and writes raw `input_event` structs through the kernel. Compositor-agnostic — works on Wayland, X11, or a bare framebuffer session — but has no focus awareness and no window API. **Fallback for environments without libei or wlroots.**
+Creates a virtual input device via `/dev/uinput` and writes raw `input_event` structs through the kernel. Compositor-agnostic (works on Wayland, X11, or a bare framebuffer session) but has no focus awareness and no window API. **Fallback for environments without libei or the wlr-* protocols.**
 
 **Requirements:**
 - Write access to `/dev/uinput`. The usual setup is `usermod -aG uinput $USER` (or `input` on some distros) plus a udev rule if the device isn't created with the group by default:
@@ -201,17 +204,17 @@ Creates a virtual input device via `/dev/uinput` and writes raw `input_event` st
 
 ## Supported compositors
 
-| Compositor   | Input backend | Window backend |
-| ------------ | ------------- | -------------- |
-| Hyprland     | wlroots       | wlroots        |
-| Sway         | wlroots       | wlroots        |
-| river        | wlroots       | wlroots        |
-| Wayfire      | wlroots       | wlroots        |
-| GNOME (46+)  | libei         | companion Shell extension (D-Bus) — [#2](https://github.com/cushycush/wdotool/issues/2) |
-| KDE Plasma 6 | libei         | KWin scripting (D-Bus) — [#1](https://github.com/cushycush/wdotool/issues/1) |
-| Anything else | uinput       | —              |
+| Compositor   | Input backend  | Window backend |
+| ------------ | -------------- | -------------- |
+| Hyprland     | wlr-protocols  | wlr-protocols  |
+| Sway         | wlr-protocols  | wlr-protocols  |
+| river        | wlr-protocols  | wlr-protocols  |
+| Wayfire      | wlr-protocols  | wlr-protocols  |
+| GNOME (46+)  | libei          | companion Shell extension (D-Bus) — [#2](https://github.com/cushycush/wdotool/issues/2) |
+| KDE Plasma 6 | libei          | KWin scripting (D-Bus) — [#1](https://github.com/cushycush/wdotool/issues/1) |
+| Anything else | uinput        | —              |
 
-Backend selection is automatic based on `XDG_CURRENT_DESKTOP` and compositor hints (`SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, etc.). The detector tries the preferred backend first and falls through to alternatives if it fails to bootstrap — use `--backend` to force a specific one.
+Backend selection is automatic based on `XDG_CURRENT_DESKTOP` and compositor hints (`SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE`, etc.). The detector tries the preferred backend first and falls through to alternatives if it fails to bootstrap. Use `--backend` to force a specific one.
 
 ## Use as a library
 
@@ -223,7 +226,7 @@ The engine lives in a separate `wdotool-core` crate, so other Rust projects can 
 wdotool-core = "0.3"
 ```
 
-Each backend is gated behind a Cargo feature (`libei`, `wlroots`, `kde`, `gnome`, `uinput`). Default-on enables all five. To skip a backend, opt out:
+Each backend is gated behind a Cargo feature (`libei`, `wlroots`, `kde`, `gnome`, `uinput`). The `wlroots` feature flag still uses the old name (the runtime backend is now `wlr-protocols`, but renaming the Cargo feature too would force every downstream `Cargo.toml` to update at the same time, so that's deferred to its own release). Default-on enables all five. To skip a backend, opt out:
 
 ```toml
 # Drop uinput's input-linux + libc deps; useful in sandboxed builds (Flatpak)
@@ -261,8 +264,8 @@ System libraries at build time: `libxkbcommon-dev` and `libwayland-dev` (Debian/
 
 ## Known limitations
 
-- Unicode `type` works fully on wlroots via transient-keymap injection. On libei, kde, and uinput it's best-effort — the compositor or kernel owns the keymap, so characters outside the active layout are skipped with a warning.
-- Multi-output absolute pointer on wlroots uses whichever `wl_output` replied first. Fine for single-monitor setups; targeting a specific output would need a new CLI arg.
+- Unicode `type` works fully on wlr-protocols via transient-keymap injection. On libei, kde, and uinput it's best-effort, since the compositor or kernel owns the keymap, so characters outside the active layout are skipped with a warning.
+- Multi-output absolute pointer on wlr-protocols uses whichever `wl_output` replied first. Fine for single-monitor setups; targeting a specific output would need a new CLI arg.
 - GNOME window management (`search` / `windowactivate` / `windowclose`) ships a companion Shell extension at `packaging/gnome-extension/wdotool@wdotool.github.io/`. Unverified on a live GNOME session — see [issue #2](https://github.com/cushycush/wdotool/issues/2).
 - KDE backend is implemented but unverified on a real Plasma session. See [issue #1](https://github.com/cushycush/wdotool/issues/1).
 - No multi-seat handling — the first seat gets everything.
@@ -280,7 +283,7 @@ wdotool-core/        # library: the engine other Rust code can use
       mod.rs         # Backend trait (async_trait)
       detector.rs    # runtime backend selection
       libei.rs       # RemoteDesktop portal + reis
-      wlroots.rs     # virtual-keyboard/pointer + foreign-toplevel + wl_output
+      wlr_protocols.rs  # virtual-keyboard/pointer + foreign-toplevel + wl_output
       kde.rs         # libei input + KWin-scripting window ops via D-Bus
       gnome.rs       # libei input + GNOME Shell extension D-Bus bridge
       uinput.rs      # /dev/uinput fallback

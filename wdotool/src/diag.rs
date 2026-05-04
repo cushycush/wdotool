@@ -100,7 +100,7 @@ fn build_report() -> DiagReport {
 
     let backends = vec![
         probe_libei(&env),
-        probe_wlroots(&env),
+        probe_wlr_protocols(&env),
         probe_kde(&env),
         probe_gnome(&env),
         probe_uinput(),
@@ -164,30 +164,28 @@ fn probe_libei(env: &Environment) -> BackendSection {
     }
 }
 
-fn probe_wlroots(env: &Environment) -> BackendSection {
+fn probe_wlr_protocols(env: &Environment) -> BackendSection {
     // Probing the actual wl_registry globals would need wayland-client,
-    // which lives behind wdotool-core's wlroots feature and is not part
-    // of the CLI's public API surface. Inferring from compositor hints
-    // is good enough for diag; the wlroots backend's own bootstrap
-    // surfaces a precise error if the protocols aren't there.
-    let is_wlroots = env.has_hint("sway")
+    // which lives behind wdotool-core's `wlroots` Cargo feature and
+    // isn't part of the CLI's public API surface. Inferring from
+    // compositor hints is good enough for diag; the wlr-protocols
+    // backend's own bootstrap surfaces a precise error if the protocols
+    // aren't there.
+    let is_wlr = env.has_hint("sway")
         || env.has_hint("hyprland")
         || env.has_hint("wayfire")
         || env.desktop_is("sway")
         || env.desktop_is("Hyprland");
-    if is_wlroots {
+    if is_wlr {
         BackendSection {
-            name: "wlroots",
+            name: "wlr-protocols",
             status: BackendStatus::Available,
-            detail: format!(
-                "wlroots-flavored compositor detected: {:?}",
-                env.compositor_hints
-            ),
+            detail: format!("wlr-* compositor detected: {:?}", env.compositor_hints),
             fix_hint: None,
         }
     } else {
         BackendSection {
-            name: "wlroots",
+            name: "wlr-protocols",
             status: BackendStatus::Unavailable,
             detail: "no Sway / Hyprland / river / Wayfire markers in the environment".into(),
             fix_hint: None,
@@ -323,7 +321,7 @@ fn suggest_portal_install(env: &Environment) -> String {
     } else if env.desktop_is("KDE") {
         "install xdg-desktop-portal-kde".into()
     } else if env.has_hint("hyprland") {
-        "xdg-desktop-portal-hyprland 1.3.x does not expose RemoteDesktop yet; pass --backend wlroots to use the virtual-keyboard / virtual-pointer protocols directly".into()
+        "xdg-desktop-portal-hyprland 1.3.x does not expose RemoteDesktop yet; pass --backend wlr-protocols to use the virtual-keyboard / virtual-pointer protocols directly".into()
     } else {
         "install an xdg-desktop-portal backend that exposes RemoteDesktop (xdg-desktop-portal-gnome or xdg-desktop-portal-kde)".into()
     }
@@ -450,23 +448,23 @@ mod tests {
     }
 
     #[test]
-    fn probe_wlroots_says_available_on_hyprland() {
+    fn probe_wlr_protocols_says_available_on_hyprland() {
         let env = Environment {
             desktop: Some("Hyprland".into()),
             compositor_hints: vec!["hyprland"],
             ..empty_env()
         };
-        let report = probe_wlroots(&env);
+        let report = probe_wlr_protocols(&env);
         assert_eq!(report.status, BackendStatus::Available);
     }
 
     #[test]
-    fn probe_wlroots_says_unavailable_on_gnome() {
+    fn probe_wlr_protocols_says_unavailable_on_gnome() {
         let env = Environment {
             desktop: Some("GNOME".into()),
             ..empty_env()
         };
-        let report = probe_wlroots(&env);
+        let report = probe_wlr_protocols(&env);
         assert_eq!(report.status, BackendStatus::Unavailable);
     }
 

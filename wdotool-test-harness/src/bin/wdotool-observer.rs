@@ -84,7 +84,7 @@ mod linux_main {
         // matching capability. In a headless sway with no real input
         // devices, the seat starts with capabilities=0 and only
         // gains keyboard/pointer caps when another client (e.g.
-        // wdotool's wlroots backend) creates a virtual_keyboard /
+        // wdotool's wlr-protocols backend) creates a virtual_keyboard /
         // virtual_pointer instance. Eagerly calling get_keyboard /
         // get_pointer at startup is a protocol error.
         keyboard: Option<wl_keyboard::WlKeyboard>,
@@ -158,8 +158,8 @@ mod linux_main {
         // We don't bind keyboard/pointer here; they're bound lazily
         // from the seat's Capabilities event handler when the
         // compositor advertises them. Headless sway starts with
-        // capabilities=0 and only gains them when wdotool's wlroots
-        // backend creates virtual input devices.
+        // capabilities=0 and only gains them when wdotool's
+        // wlr-protocols backend creates virtual input devices.
 
         // Now wait for configure and for keyboard/pointer to come up.
         // After that the run loop just dispatches forever, printing

@@ -9,14 +9,14 @@ use super::libei::LibeiBackend;
 #[cfg(feature = "uinput")]
 use super::uinput::UinputBackend;
 #[cfg(feature = "wlroots")]
-use super::wlroots::WlrootsBackend;
+use super::wlr_protocols::WlrProtocolsBackend;
 use super::DynBackend;
 use crate::error::{Result, WdoError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendKind {
     Libei,
-    Wlroots,
+    WlrProtocols,
     KdeDBus,
     GnomeExt,
     Uinput,
@@ -26,7 +26,7 @@ impl BackendKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Libei => "libei",
-            Self::Wlroots => "wlroots",
+            Self::WlrProtocols => "wlr-protocols",
             Self::KdeDBus => "kde-dbus",
             Self::GnomeExt => "gnome-ext",
             Self::Uinput => "uinput",
@@ -36,7 +36,8 @@ impl BackendKind {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "libei" => Some(Self::Libei),
-            "wlroots" | "wlr" => Some(Self::Wlroots),
+            // "wlroots" kept as an alias from before the v0.6.0 rename.
+            "wlr-protocols" | "wlr" | "wlroots" => Some(Self::WlrProtocols),
             "kde" | "kde-dbus" | "kwin" => Some(Self::KdeDBus),
             "gnome" | "gnome-ext" | "gnome-shell" => Some(Self::GnomeExt),
             "uinput" => Some(Self::Uinput),
@@ -99,33 +100,34 @@ impl Environment {
 pub fn priority(env: &Environment) -> Vec<BackendKind> {
     let mut order: Vec<BackendKind> = Vec::new();
 
-    let is_wlroots = env.has_hint("sway")
+    let is_wlr = env.has_hint("sway")
         || env.has_hint("hyprland")
         || env.has_hint("wayfire")
         || env.desktop_is("sway")
         || env.desktop_is("Hyprland");
 
-    if is_wlroots {
-        // wlroots compositors expose protocols libei can't match on these hosts
-        order.push(BackendKind::Wlroots);
+    if is_wlr {
+        // Sway, river, Wayfire, Hyprland expose the wlr-* virtual-input
+        // protocols that libei often can't reach on these hosts.
+        order.push(BackendKind::WlrProtocols);
         order.push(BackendKind::Libei);
     } else if env.desktop_is("KDE") {
         // KdeDBus composes libei input + KWin scripting windows, so it's a
         // strict superset of bare libei on Plasma sessions.
         order.push(BackendKind::KdeDBus);
         order.push(BackendKind::Libei);
-        order.push(BackendKind::Wlroots);
+        order.push(BackendKind::WlrProtocols);
     } else if env.desktop_is("GNOME") {
         // GnomeExt (libei input + Shell-extension window bridge) is a strict
-        // superset of libei on GNOME — when the extension is installed. If
+        // superset of libei on GNOME, when the extension is installed. If
         // its init fails, build() falls through to bare libei automatically.
         order.push(BackendKind::GnomeExt);
         order.push(BackendKind::Libei);
-        order.push(BackendKind::Wlroots);
+        order.push(BackendKind::WlrProtocols);
     } else {
         // Other portal-capable sessions prefer bare libei.
         order.push(BackendKind::Libei);
-        order.push(BackendKind::Wlroots);
+        order.push(BackendKind::WlrProtocols);
     }
 
     order.push(BackendKind::Uinput);
@@ -214,11 +216,11 @@ async fn build_one(kind: BackendKind) -> Result<DynBackend> {
         }),
 
         #[cfg(feature = "wlroots")]
-        BackendKind::Wlroots => Ok(Box::new(WlrootsBackend::try_new().await?)),
+        BackendKind::WlrProtocols => Ok(Box::new(WlrProtocolsBackend::try_new().await?)),
         #[cfg(not(feature = "wlroots"))]
-        BackendKind::Wlroots => Err(WdoError::NotSupported {
-            backend: "wlroots",
-            what: "this build does not include the wlroots backend",
+        BackendKind::WlrProtocols => Err(WdoError::NotSupported {
+            backend: "wlr-protocols",
+            what: "this build does not include the wlr-protocols backend",
         }),
 
         #[cfg(feature = "kde")]
@@ -252,7 +254,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn priority_prefers_wlroots_on_sway() {
+    fn priority_prefers_wlr_protocols_on_sway() {
         let env = Environment {
             desktop: Some("sway".into()),
             session_type: Some("wayland".into()),
@@ -260,7 +262,7 @@ mod tests {
             compositor_hints: vec!["sway"],
         };
         let order = priority(&env);
-        assert_eq!(order.first().copied(), Some(BackendKind::Wlroots));
+        assert_eq!(order.first().copied(), Some(BackendKind::WlrProtocols));
         assert!(order.contains(&BackendKind::Uinput));
     }
 

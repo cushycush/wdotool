@@ -177,7 +177,7 @@ async fn type_honors_explicit_delay() {
 async fn type_passes_multibyte_utf8_through_unchanged() {
     // The CLI shouldn't transform the bytes — backends receive the raw
     // string and decide how to map each grapheme to keysyms (e.g. by
-    // injecting a transient keymap on wlroots).
+    // injecting a transient keymap on wlr-protocols).
     let text = "hello 世界 🌍";
     let r = common::run(&["type", text]).await;
     assert!(r.exit.is_success());
@@ -262,7 +262,7 @@ async fn key_with_invalid_chain_errors_before_calling_backend() {
 async fn key_with_unknown_keysym_passes_through_to_backend() {
     // The CLI keysym parser validates structure (split on `+`, no
     // empty segments), not whether each token names a real keysym.
-    // The backend gets the final say — wlroots/uinput/libei each
+    // The backend gets the final say. wlr-protocols / uinput / libei each
     // apply their own xkb lookup. This test pins that contract: an
     // unknown name reaches the backend untouched.
     let r = common::run(&["key", "ThisIsNotARealKeysym1234"]).await;

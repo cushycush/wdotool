@@ -94,7 +94,7 @@ async fn dispatch_event(backend: &dyn Backend, event: &RecEvent, speed: f64) -> 
         RecEvent::Scroll { dx, dy, .. } => {
             // RecEvent stores deltas as i32 (because evdev reports
             // them that way); the Backend trait scroll takes f64
-            // because the wlroots/libei paths use floating-point
+            // because the wlr-protocols / libei paths use floating-point
             // axes. The cast is lossless for any realistic scroll.
             backend.scroll(*dx as f64, *dy as f64).await?;
         }

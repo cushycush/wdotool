@@ -13,13 +13,13 @@ pub struct Capabilities {
     pub pointer_position: bool,
     /// True when the backend can enumerate outputs and `mousemove
     /// --output <name>` will translate output-local to global coords.
-    /// wlroots: yes (foreign-toplevel + wl_output). KDE / GNOME / libei:
+    /// wlr-protocols: yes (foreign-toplevel + wl_output). KDE / GNOME / libei:
     /// not yet (each compositor has a different way to enumerate
     /// monitors). uinput: never (kernel layer, no notion of screens).
     pub list_outputs: bool,
     /// True when the backend can read a window's frame position and
     /// size for `wdotool getwindowgeometry`. KDE (kwin script) and
-    /// GNOME (Shell extension) can; wlroots' foreign-toplevel doesn't
+    /// GNOME (Shell extension) can; wlr-protocols' foreign-toplevel doesn't
     /// expose geometry, libei and uinput have no window concept.
     pub window_geometry: bool,
 }
@@ -98,7 +98,7 @@ pub struct OutputInfo {
 
 /// Position and size of a window's frame in compositor coordinates,
 /// matching xdotool's `getwindowgeometry` semantics. Backends that
-/// can't read window geometry (wlroots' foreign-toplevel doesn't
+/// can't read window geometry (wlr-protocols' foreign-toplevel doesn't
 /// expose it; libei and uinput have no window concept) return `None`
 /// instead of populating this. KDE reads it via a transient kwin
 /// script; GNOME via the companion Shell extension.

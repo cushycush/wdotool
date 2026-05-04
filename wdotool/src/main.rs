@@ -41,11 +41,11 @@ async fn main() -> anyhow::Result<()> {
     let env = Environment::detect();
 
     // Prime short-circuits the dispatch loop so it can hold the
-    // wlroots backend alive in the foreground until a signal arrives.
-    // We always pick wlroots regardless of cli.backend because that's
-    // the only backend whose devices live across calls.
+    // wlr-protocols backend alive in the foreground until a signal
+    // arrives. We always pick wlr-protocols regardless of cli.backend
+    // because that's the only backend whose devices live across calls.
     if let Command::Prime = cli.command {
-        let backend = detector::build(&env, Some(BackendKind::Wlroots)).await?;
+        let backend = detector::build(&env, Some(BackendKind::WlrProtocols)).await?;
         // Stdout is the readiness signal for any test harness (or
         // human) waiting on us. Flush so the `ready` line lands
         // before this process blocks on the signal handler.
@@ -63,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
     let forced = match cli.backend.as_deref() {
         Some(s) => Some(BackendKind::parse(s).ok_or_else(|| {
             WdoError::InvalidArg(format!(
-                "unknown backend '{s}' (expected libei, wlroots, kde, gnome, uinput)"
+                "unknown backend '{s}' (expected libei, wlr-protocols, kde, gnome, uinput)"
             ))
         })?),
         None => None,

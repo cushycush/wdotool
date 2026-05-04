@@ -226,8 +226,8 @@ impl HeadlessSway {
     }
 
     /// Run `wdotool <args>` against this compositor, forcing the
-    /// wlroots backend (which is the only sender backend that works in
-    /// a headless wlroots compositor without a portal). Returns the
+    /// wlr-protocols backend (the only sender backend that works in a
+    /// headless wlroots compositor without a portal). Returns the
     /// completed [`std::process::Output`] so tests can assert on
     /// stdout, stderr, and exit status.
     pub fn run_wdotool(&self, args: &[&str]) -> Result<std::process::Output, HarnessError> {
@@ -235,7 +235,7 @@ impl HeadlessSway {
     }
 
     /// Spawn `wdotool prime` against this compositor. The returned
-    /// [`Prime`] handle holds the wlroots virtual_keyboard +
+    /// [`Prime`] handle holds the wlr-protocols virtual_keyboard +
     /// virtual_pointer alive until dropped (which sends SIGTERM and
     /// waits for clean release). Blocks until prime prints `ready` to
     /// stdout, so the caller knows the seat caps are up before it
@@ -253,14 +253,14 @@ impl HeadlessSway {
 
         let mut cmd = Command::new(bin);
         self.apply_env(&mut cmd);
-        cmd.args(["--backend", "wlroots", "prime"]);
+        cmd.args(["--backend", "wlr-protocols", "prime"]);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         let mut child = cmd.spawn().map_err(HarnessError::SpawnFailed)?;
 
         // Block until prime prints `ready` (or it dies). 5s budget;
         // prime is essentially as fast as any wdotool invocation
-        // because it just builds the wlroots backend and prints.
+        // because it just builds the wlr-protocols backend and prints.
         let stdout = child.stdout.take().expect("piped");
         let mut reader = BufReader::new(stdout);
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -301,7 +301,7 @@ impl Drop for HeadlessSway {
 }
 
 /// Handle to a running `wdotool prime` subprocess. While alive, the
-/// wlroots virtual_keyboard + virtual_pointer stay registered on the
+/// wlr-protocols virtual_keyboard + virtual_pointer stay registered on the
 /// compositor's seat, so observer clients in the same session keep
 /// the keyboard/pointer cap visible without having to rebind on every
 /// transient `wdotool` invocation. Drop sends SIGTERM and waits.
@@ -384,7 +384,7 @@ fn run_wdotool_with(
 
     let mut cmd = Command::new(bin);
     apply_env_to(&mut cmd, runtime_dir, display);
-    cmd.args(["--backend", "wlroots"]);
+    cmd.args(["--backend", "wlr-protocols"]);
     cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
