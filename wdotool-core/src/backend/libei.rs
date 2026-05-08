@@ -796,7 +796,10 @@ mod tests {
     #[test]
     fn timeout_falls_back_on_garbage() {
         assert_eq!(parse_timeout_secs(Some("")), DEFAULT_TIMEOUT_SECS);
-        assert_eq!(parse_timeout_secs(Some("not-a-number")), DEFAULT_TIMEOUT_SECS);
+        assert_eq!(
+            parse_timeout_secs(Some("not-a-number")),
+            DEFAULT_TIMEOUT_SECS
+        );
         assert_eq!(parse_timeout_secs(Some("-5")), DEFAULT_TIMEOUT_SECS);
         assert_eq!(parse_timeout_secs(Some("3.5")), DEFAULT_TIMEOUT_SECS);
     }
