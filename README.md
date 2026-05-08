@@ -76,6 +76,8 @@ cargo build --release
 
 Flathub submission is in progress. Until it lands, the manifest at `packaging/flatpak/io.github.cushycush.wdotool.yml` builds locally for anyone who wants to test it. See `packaging/flatpak/README.md` for the steps.
 
+There's also a Containerfile for Podman/Docker at `packaging/container/`, useful for CI rigs that want to drive a host Wayland session from inside a container without installing host packages. wlroots and uinput backends work; libei / kde / gnome don't (portal forwarding is a rabbit hole). See `packaging/container/README.md`.
+
 Runtime deps: `libxkbcommon` and `libwayland-client`. Both are universally present on Wayland systems.
 
 ## Usage

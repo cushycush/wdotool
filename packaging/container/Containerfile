@@ -1,0 +1,35 @@
+# Minimal runtime image for wdotool.
+#
+# The binary lives in the container; events go to the host kernel
+# (uinput) or the host compositor (wlroots), depending on which
+# device or socket you mount in. See README.md for run examples.
+#
+# Build (Podman or Docker; file is a valid Dockerfile too):
+#   podman build -t wdotool:latest -f packaging/container/Containerfile .
+#   docker build -t wdotool:latest -f packaging/container/Containerfile .
+#
+# Pin a different release with:
+#   podman build --build-arg WDOTOOL_VERSION=0.5.1 ...
+
+FROM debian:bookworm-slim
+
+ARG WDOTOOL_VERSION=0.5.1
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libwayland-client0 \
+        libxkbcommon0 \
+        xkb-data \
+    ; \
+    curl -fsSL -o /tmp/wdotool.deb \
+        "https://github.com/cushycush/wdotool/releases/download/v${WDOTOOL_VERSION}/wdotool_${WDOTOOL_VERSION}-1_amd64.deb"; \
+    dpkg -i /tmp/wdotool.deb; \
+    rm -f /tmp/wdotool.deb; \
+    apt-get purge -y --auto-remove curl; \
+    rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["wdotool"]
+CMD ["--help"]
