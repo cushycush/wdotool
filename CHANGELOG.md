@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- libei backend: bumped the device-resume timeout from 5s to 15s. The old 5s was too tight for cold-start of `xdg-desktop-portal-kde`, which can take longer than 5s on a fresh boot. Override with `WDOTOOL_LIBEI_TIMEOUT_SECS=N` (any positive integer; values that don't parse as `u64` log a warning and fall back to the default).
+- libei backend: rewrote the device-resume timeout error to list candidate causes (dialog dismissed, portal cold-start, portal vended no device, capability mismatch) instead of asserting the user dismissed the dialog. Surfaced from a Plasma 6.6.4 / Manjaro report where the user accepted the dialog and still hit the timeout. Closes part of [#40](https://github.com/cushycush/wdotool/issues/40).
+
 ## [0.5.0] — 2026-05-01
 
 ### Added

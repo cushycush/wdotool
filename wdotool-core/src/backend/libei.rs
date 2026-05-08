@@ -29,6 +29,34 @@ use crate::types::{Capabilities, KeyDirection, MouseButton, WindowId, WindowInfo
 
 const NAME: &str = "libei";
 
+/// Default seconds to wait for the libei portal to vend the first device.
+/// Set high enough to absorb cold-start of xdg-desktop-portal-kde, which
+/// can need over 5s on a fresh boot. Override with WDOTOOL_LIBEI_TIMEOUT_SECS.
+const DEFAULT_TIMEOUT_SECS: u64 = 15;
+const TIMEOUT_ENV_VAR: &str = "WDOTOOL_LIBEI_TIMEOUT_SECS";
+
+fn parse_timeout_secs(raw: Option<&str>) -> u64 {
+    let Some(value) = raw else {
+        return DEFAULT_TIMEOUT_SECS;
+    };
+    match value.trim().parse::<u64>() {
+        Ok(n) => n,
+        Err(_) => {
+            warn!(
+                var = TIMEOUT_ENV_VAR,
+                value,
+                default = DEFAULT_TIMEOUT_SECS,
+                "ignoring unparseable timeout env var, using default"
+            );
+            DEFAULT_TIMEOUT_SECS
+        }
+    }
+}
+
+fn libei_timeout_secs() -> u64 {
+    parse_timeout_secs(std::env::var(TIMEOUT_ENV_VAR).ok().as_deref())
+}
+
 pub struct LibeiBackend {
     state: Arc<Mutex<State>>,
     start: Instant,
@@ -98,7 +126,7 @@ impl LibeiBackend {
 
         // Wait for the first device to resume. No sleep loop — the dispatcher
         // fires the oneshot exactly when DeviceResumed arrives.
-        let timeout_secs: u64 = 5;
+        let timeout_secs = libei_timeout_secs();
         match tokio::time::timeout(Duration::from_secs(timeout_secs), ready_rx).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => {
@@ -115,7 +143,7 @@ impl LibeiBackend {
                          Possible causes:\n  \
                            - the RemoteDesktop portal dialog was dismissed or denied\n  \
                            - portal cold-start took longer than the timeout \
-                             (KDE first-run can need more than {timeout_secs}s)\n  \
+                             (extend it with {TIMEOUT_ENV_VAR}=30 or higher)\n  \
                            - the portal accepted but didn't vend a usable input device\n  \
                            - device negotiation didn't include a capability wdotool can drive\n\
                          Check your desktop's privacy / remote-desktop settings and retry. \
@@ -746,5 +774,30 @@ impl Backend for LibeiBackend {
             backend: NAME,
             what: "close_window — libei has no window API; pair with a WindowBackend",
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeout_default_when_unset() {
+        assert_eq!(parse_timeout_secs(None), DEFAULT_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn timeout_parses_valid_value() {
+        assert_eq!(parse_timeout_secs(Some("30")), 30);
+        assert_eq!(parse_timeout_secs(Some("1")), 1);
+        assert_eq!(parse_timeout_secs(Some("  45  ")), 45);
+    }
+
+    #[test]
+    fn timeout_falls_back_on_garbage() {
+        assert_eq!(parse_timeout_secs(Some("")), DEFAULT_TIMEOUT_SECS);
+        assert_eq!(parse_timeout_secs(Some("not-a-number")), DEFAULT_TIMEOUT_SECS);
+        assert_eq!(parse_timeout_secs(Some("-5")), DEFAULT_TIMEOUT_SECS);
+        assert_eq!(parse_timeout_secs(Some("3.5")), DEFAULT_TIMEOUT_SECS);
     }
 }
