@@ -1,5 +1,14 @@
-//! wlroots backend — input via `zwp_virtual_keyboard_v1` +
+//! wlr-protocols backend. Input via `zwp_virtual_keyboard_v1` +
 //! `zwlr_virtual_pointer_v1`, windows via `zwlr_foreign_toplevel_management_v1`.
+//!
+//! Naming: this backend has no runtime dependency on the wlroots library. It
+//! targets the wlr-* protocol family (so-called because they're maintained in
+//! the wlr-protocols upstream), which Sway, river, Wayfire, and Hyprland all
+//! implement independently. The backend used to be called "wlroots" and that
+//! string was misleading enough to confuse testers, so it was renamed in
+//! v0.6.0. The Cargo feature flag is still `wlroots` and `--backend wlroots`
+//! is still accepted as an alias for `--backend wlr-protocols` while scripts
+//! transition.
 //!
 //! All wayland work happens on a single dedicated OS thread (EventQueue is
 //! !Send). The main thread talks to it over a sync command channel with
@@ -39,11 +48,11 @@ use super::Backend;
 use crate::error::{Result, WdoError};
 use crate::types::{Capabilities, KeyDirection, MouseButton, OutputInfo, WindowId, WindowInfo};
 
-const NAME: &str = "wlroots";
+const NAME: &str = "wlr-protocols";
 
 // ---- Public backend handle --------------------------------------------------
 
-pub struct WlrootsBackend {
+pub struct WlrProtocolsBackend {
     tx: mpsc::Sender<Command>,
     caps: Arc<Mutex<Capabilities>>,
     // Drop this to tell the worker to shut down (not strictly needed for CLI
@@ -61,7 +70,7 @@ impl Drop for ShutdownGuard {
     }
 }
 
-impl WlrootsBackend {
+impl WlrProtocolsBackend {
     pub async fn try_new() -> Result<Self> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Command>();
         let (ready_tx, ready_rx) = oneshot::channel::<std::result::Result<Capabilities, String>>();
@@ -571,7 +580,7 @@ fn worker_main(
             }
         }
     }
-    debug!("wlroots worker exiting");
+    debug!("wlr-protocols worker exiting");
 }
 
 fn to_window_info(t: &ToplevelInfo) -> WindowInfo {
@@ -810,8 +819,8 @@ fn do_mouse_move(
 /// `virtual_pointer` bound to the named output via
 /// `create_virtual_pointer_with_output`, then sends `motion_absolute`
 /// against that output's mode dimensions. Without this, `mousemove
-/// --output DP-2 50 50` hits the wrong monitor because wlroots' default
-/// single-pointer interprets the extent against the primary output.
+/// --output DP-2 50 50` hits the wrong monitor because the protocol's
+/// default single-pointer interprets the extent against the primary output.
 /// Closes #22.
 #[allow(clippy::too_many_arguments)]
 fn do_mouse_move_to_output(
@@ -1523,7 +1532,7 @@ delegate_noop!(State: vp::ZwlrVirtualPointerV1);
 // ---- Backend trait impl -----------------------------------------------------
 
 #[async_trait]
-impl Backend for WlrootsBackend {
+impl Backend for WlrProtocolsBackend {
     fn name(&self) -> &'static str {
         NAME
     }

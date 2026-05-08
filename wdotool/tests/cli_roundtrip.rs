@@ -257,7 +257,7 @@ fn replay_keyboard_trace_round_trips_to_observer() {
 // ============================================================
 
 #[test]
-fn key_a_round_trips_through_wlroots_backend() {
+fn key_a_round_trips_through_wlr_protocols_backend() {
     let Some((sway, observer, _guard)) = fresh_session() else {
         return;
     };
@@ -310,13 +310,13 @@ fn key_ctrl_shift_a_emits_modifiers_in_xdotool_order() {
 }
 
 // keydown/keyup don't compose across separate wdotool processes on
-// the wlroots backend: each invocation creates and destroys its own
+// the wlr-protocols backend: each invocation creates and destroys its own
 // virtual_keyboard, and sway auto-releases any keys held by a device
 // on destruction. Layer 2 covers the dispatch contract; this case
 // would only work end-to-end via libei (with a portal session) or a
 // future "wdotool session" mode that keeps the device alive across
 // commands.
-#[ignore = "wlroots backend doesn't preserve held-key state across process invocations"]
+#[ignore = "wlr-protocols backend doesn't preserve held-key state across process invocations"]
 #[test]
 fn keydown_then_keyup_round_trip_holds_then_releases() {
     // keydown leaves the key held; keyup releases it. A bug where
@@ -352,7 +352,7 @@ fn keydown_then_keyup_round_trip_holds_then_releases() {
 
 #[test]
 fn type_hello_arrives_as_individual_characters() {
-    // The wlroots backend types text by injecting a transient keymap
+    // The wlr-protocols backend types text by injecting a transient keymap
     // that maps the next char to a known keycode, sending press +
     // release, and restoring the original keymap. This test pins that
     // each character arrives as a press-release pair, in order, with
@@ -369,7 +369,7 @@ fn type_hello_arrives_as_individual_characters() {
 
     let events = observer.collect_events(Duration::from_millis(800));
 
-    // The wlroots backend sends a keymap_received line for each
+    // The wlr-protocols backend sends a keymap_received line for each
     // transient keymap upload. Verify at least one happened (proof
     // of the injection mechanism), but don't require keymap_changed
     // since xkbcommon may fail to parse the transient keymap on
@@ -609,7 +609,7 @@ fn scroll_positive_dy_emits_vertical_axis_with_positive_value() {
 #[test]
 fn scroll_negative_dy_emits_vertical_axis_with_negative_value() {
     // Symmetric to the positive case. Catches a sign-flip bug in
-    // wlroots' scroll path that wouldn't surface in Layer 2 (which
+    // wlr-protocols' scroll path that wouldn't surface in Layer 2 (which
     // just asserts the value reaches the backend unchanged).
     let Some((sway, observer, _guard)) = fresh_session() else {
         return;

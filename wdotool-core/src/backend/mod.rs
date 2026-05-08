@@ -21,7 +21,7 @@ pub(crate) mod libei;
 #[cfg(feature = "uinput")]
 pub(crate) mod uinput;
 #[cfg(feature = "wlroots")]
-pub(crate) mod wlroots;
+pub(crate) mod wlr_protocols;
 
 #[async_trait]
 pub trait Backend: Send + Sync {
@@ -39,12 +39,12 @@ pub trait Backend: Send + Sync {
     /// coordinates within the named output. The default implementation
     /// looks up the output's origin via [`list_outputs`], translates
     /// to global compositor coords, and falls through to
-    /// [`mouse_move`] with `absolute = true`. The wlroots backend
+    /// [`mouse_move`] with `absolute = true`. The wlr-protocols backend
     /// overrides this to bind a per-output `virtual_pointer` and send
     /// `motion_absolute` against that output's mode dimensions
-    /// directly, since wlroots' single-pointer `motion_absolute` ties
-    /// the extent to the primary output (placing the cursor on the
-    /// wrong monitor for non-primary `--output` calls).
+    /// directly, since the protocol's single-pointer `motion_absolute`
+    /// ties the extent to the primary output (placing the cursor on
+    /// the wrong monitor for non-primary `--output` calls).
     ///
     /// [`list_outputs`]: Backend::list_outputs
     /// [`mouse_move`]: Backend::mouse_move
@@ -73,8 +73,9 @@ pub trait Backend: Send + Sync {
 
     /// Read the compositor's current pointer position in screen
     /// coordinates. Returns `Ok(None)` for backends that can't expose
-    /// it: libei is send-only by design, wlroots' virtual-pointer is
-    /// likewise send-only with no read protocol, and uinput is at the
+    /// it: libei is send-only by design, the wlr-protocols
+    /// virtual-pointer is likewise send-only with no read protocol,
+    /// and uinput is at the
     /// kernel layer with no notion of "screen". KDE reads via a
     /// transient kwin script, GNOME via the companion Shell extension.
     async fn pointer_position(&self) -> Result<Option<(i32, i32)>> {
@@ -82,8 +83,9 @@ pub trait Backend: Send + Sync {
     }
 
     /// Enumerate the compositor's outputs (monitors). Returns an empty
-    /// vector for backends that don't enumerate outputs; the wlroots
-    /// backend is the first to populate it (via `wl_output`). KDE and
+    /// vector for backends that don't enumerate outputs; the
+    /// wlr-protocols backend is the first to populate it (via
+    /// `wl_output`). KDE and
     /// GNOME each have their own enumeration path that hasn't been
     /// wired up yet; libei has device regions but no name mapping;
     /// uinput is at the kernel layer with no notion of monitors.
@@ -93,7 +95,7 @@ pub trait Backend: Send + Sync {
 
     /// Read the frame position + size of a window by id. Returns
     /// `Ok(None)` for backends that can't read window geometry:
-    /// wlroots' `zwlr_foreign_toplevel_management_v1` doesn't expose
+    /// the wlr-protocols `zwlr_foreign_toplevel_management_v1` doesn't expose
     /// geometry, libei has no window concept at all, uinput is at the
     /// kernel layer. KDE reads it via a transient kwin script
     /// (`window.frameGeometry`); GNOME via the companion Shell

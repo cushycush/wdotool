@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The wlroots backend is now called wlr-protocols. The old name was misleading: the backend has no runtime dependency on the wlroots library (Hyprland forked off wlroots a while back, Debian no longer lists it as a dependency, etc.). It targets the wlr-* protocol family that Sway, river, Wayfire, and Hyprland all implement independently. Reported on r/wayland during pre-release tester recruitment. Affected surfaces: `Backend::name()` returns `wlr-protocols`, `--backend wlr-protocols` is the canonical CLI value, the capabilities JSON schema lists `wlr-protocols` instead of `wlroots`, the `BackendKind` enum variant is `WlrProtocols`, and the source file moved to `wdotool-core/src/backend/wlr_protocols.rs`. `--backend wlroots` keeps working as an alias so existing scripts don't break. The Cargo feature flag is still named `wlroots` because renaming it would force a breaking change on every downstream `Cargo.toml`; that's deferred to a future release.
+
 ## [0.5.1] — 2026-05-08
 
 ### Changed

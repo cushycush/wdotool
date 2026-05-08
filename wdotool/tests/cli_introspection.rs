@@ -106,7 +106,7 @@ async fn outputs_default_format_is_tab_separated_with_header() {
 
 #[tokio::test]
 async fn outputs_with_no_outputs_prints_just_header_and_exits_0() {
-    // The wlroots backend returns Vec::new() when no monitors are
+    // The wlr-protocols backend returns Vec::new() when no monitors are
     // enumerated; libei/uinput always return Vec::new(). Either way
     // we exit 0 with a header-only table so scripts can `awk` over it.
     let r = common::run(&["outputs"]).await;
@@ -153,7 +153,7 @@ async fn getmouselocation_prints_xdotool_format_when_supported() {
 
 #[tokio::test]
 async fn getmouselocation_exits_1_with_hint_when_backend_returns_none() {
-    // libei/wlroots/uinput all return Ok(None) here. The CLI prints
+    // libei / wlr-protocols / uinput all return Ok(None) here. The CLI prints
     // a stderr hint pointing the user at kde/gnome backends or their
     // compositor's IPC, then exits 1.
     let r = common::run(&["getmouselocation"]).await;

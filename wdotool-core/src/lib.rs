@@ -14,7 +14,7 @@
 //!   `docs/capabilities-schema.json`). Use this to ask "what does
 //!   this wdotool installation support?" from Rust or via JSON.
 //!
-//! Per-backend modules (libei, wlroots, kde, gnome, uinput) are gated
+//! Per-backend modules (libei, wlr-protocols, kde, gnome, uinput) are gated
 //! behind Cargo features. Default features enable all five. Downstream
 //! consumers that don't need a particular backend (e.g. a sandboxed
 //! Flatpak that excludes `uinput`) can opt out via

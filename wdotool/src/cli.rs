@@ -8,7 +8,9 @@ use clap::{Parser, Subcommand};
     disable_help_subcommand = true
 )]
 pub struct Cli {
-    /// Force a specific backend (libei, wlroots, kde, gnome, uinput).
+    /// Force a specific backend (libei, wlr-protocols, kde, gnome, uinput).
+    /// "wlroots" is accepted as an alias for "wlr-protocols" for scripts
+    /// written before the v0.6.0 rename.
     #[arg(long, global = true)]
     pub backend: Option<String>,
 
@@ -70,8 +72,8 @@ pub enum Command {
         /// Treat (x, y) as relative to this output's origin instead of
         /// the global compositor coordinate space. Use the name from
         /// `wdotool outputs` (e.g. `DP-1`, `HDMI-A-1`). Conflicts with
-        /// `--relative`. Currently only the wlroots backend enumerates
-        /// outputs; other backends error if you pass `--output`.
+        /// `--relative`. Currently only the wlr-protocols backend
+        /// enumerates outputs; other backends error if you pass `--output`.
         #[arg(long, conflicts_with = "relative")]
         output: Option<String>,
         x: i32,
@@ -136,13 +138,13 @@ pub enum Command {
 
     /// Print the current pointer position as `x:N y:N` (xdotool's
     /// default format). Exits 1 on backends that can't read pointer
-    /// position (libei, wlroots, uinput); KDE and GNOME both can.
+    /// position (libei, wlr-protocols, uinput); KDE and GNOME both can.
     Getmouselocation,
 
     /// List the compositor's outputs (monitors). One row per output:
     /// name, x, y, width, height, scale. Pass `--json` for structured
-    /// output. Currently only the wlroots backend enumerates outputs;
-    /// others exit 0 with empty output.
+    /// output. Currently only the wlr-protocols backend enumerates
+    /// outputs; others exit 0 with empty output.
     Outputs {
         /// Emit JSON instead of the default tab-separated table.
         #[arg(long)]
@@ -171,8 +173,8 @@ pub enum Command {
     /// Print the frame position and size of a window by id. Output
     /// matches xdotool's default format ("Window <id>" header,
     /// position, geometry). Exits 1 if the id doesn't exist or the
-    /// active backend can't read window geometry (libei / wlroots /
-    /// uinput); KDE and GNOME both can.
+    /// active backend can't read window geometry (libei / wlr-protocols
+    /// / uinput); KDE and GNOME both can.
     Getwindowgeometry { id: String },
 
     /// Show detected environment and backend capabilities.
@@ -225,15 +227,15 @@ pub enum Command {
         backend: String,
     },
 
-    /// Hold the wlroots virtual_keyboard + virtual_pointer alive in
-    /// the foreground. Prints `ready` to stdout once devices are up,
+    /// Hold the wlr-protocols virtual_keyboard + virtual_pointer alive
+    /// in the foreground. Prints `ready` to stdout once devices are up,
     /// then blocks until SIGINT (Ctrl-C) or SIGTERM. Useful for two
     /// things: keeping the seat's pointer / keyboard capability up
     /// across multiple wdotool invocations (the Layer 3 round-trip
     /// suite needs this so its observer client stays bound), and
     /// reducing per-call latency for scripts that send many
     /// successive ops (no need to recreate virtual devices each
-    /// time). Only the wlroots backend has long-lived virtual
+    /// time). Only the wlr-protocols backend has long-lived virtual
     /// devices; this command always picks it.
     Prime,
 

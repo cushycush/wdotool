@@ -2,7 +2,7 @@
 //! GNOME Shell extension exposing a D-Bus service on the session bus.
 //!
 //! GNOME Shell does not expose a generic external window API over D-Bus or
-//! Wayland protocols (unlike KDE's KWin scripting interface or the wlroots
+//! Wayland protocols (unlike KDE's KWin scripting interface or the wlr-*
 //! foreign-toplevel protocol), so a small Shell extension is required for
 //! `search` / `getactivewindow` / `windowactivate` / `windowclose`. Ship
 //! target: `packaging/gnome-extension/wdotool@wdotool.github.io/`.

@@ -410,8 +410,8 @@ fn portal_err(e: ashpd::Error) -> WdoError {
             "\n\nThe compositor isn't exposing the RemoteDesktop portal. Fix:\n  \
              GNOME: install xdg-desktop-portal-gnome (most distros ship it)\n  \
              KDE:   install xdg-desktop-portal-kde\n  \
-             Hyprland/Sway/wlroots: RemoteDesktop isn't available on these yet —\n         \
-             pass --backend wlroots to use virtual-keyboard/pointer directly",
+             Hyprland / Sway / Wayfire / river: RemoteDesktop isn't available on these yet,\n         \
+             pass --backend wlr-protocols to use virtual-keyboard/pointer directly",
         )
     } else {
         None
@@ -640,7 +640,7 @@ impl Backend for LibeiBackend {
         // support is strictly bounded by what the server layout covers.
         //
         // This is a best-effort fallback. For full Unicode injection, use the
-        // wlroots backend (which CAN install a transient keymap).
+        // wlr-protocols backend (which CAN install a transient keymap).
         let resolved: Vec<(u32, bool)> = {
             let st = self.state.lock().unwrap();
             let keymap = st.keymap.as_ref().ok_or(WdoError::NotSupported {

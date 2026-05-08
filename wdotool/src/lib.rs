@@ -187,7 +187,7 @@ pub async fn dispatch(ctx: &mut DispatchCtx<'_>, cmd: Command) -> Result<ExitCod
             // --output path delegates to the trait's
             // mouse_move_to_output method, which has a default impl
             // that translates output-local coords to global; the
-            // wlroots backend overrides that default to bind a
+            // wlr-protocols backend overrides that default to bind a
             // per-output virtual_pointer (fixes #22).
             match output {
                 Some(name) => ctx.backend.mouse_move_to_output(&name, x, y).await?,

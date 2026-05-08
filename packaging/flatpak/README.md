@@ -6,7 +6,7 @@ The manifest, .desktop file, and AppStream metainfo here are the source of truth
 
 Flatpak ships well to Steam Deck, the immutable Fedora variants (Silverblue, Bazzite, Kinoite), GNOME OS, and any user who's standardized on Flathub for desktop apps. The DEB and RPM artifacts attached to GitHub releases cover everyone else.
 
-The Flatpak build excludes the uinput backend at compile time. The sandbox cannot reach `/dev/uinput`, so including the backend would just produce a runtime error. The libei, wlroots, kde, and gnome backends all work inside the sandbox via the portal and Wayland sockets.
+The Flatpak build excludes the uinput backend at compile time. The sandbox cannot reach `/dev/uinput`, so including the backend would just produce a runtime error. The libei, wlr-protocols, kde, and gnome backends all work inside the sandbox via the portal and Wayland sockets.
 
 ## How submission works
 
