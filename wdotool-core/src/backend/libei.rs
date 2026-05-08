@@ -96,9 +96,10 @@ impl LibeiBackend {
 
         let state = connection.state.clone();
 
-        // Wait up to 5s for the first device to resume. No sleep loop — the
-        // dispatcher fires the oneshot exactly when DeviceResumed arrives.
-        match tokio::time::timeout(Duration::from_secs(5), ready_rx).await {
+        // Wait for the first device to resume. No sleep loop — the dispatcher
+        // fires the oneshot exactly when DeviceResumed arrives.
+        let timeout_secs: u64 = 5;
+        match tokio::time::timeout(Duration::from_secs(timeout_secs), ready_rx).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => {
                 return Err(WdoError::Backend {
@@ -109,11 +110,18 @@ impl LibeiBackend {
             Err(_) => {
                 return Err(WdoError::Backend {
                     backend: NAME,
-                    source: "timed out waiting for libei device.\n\
-                             Common cause: the RemoteDesktop portal dialog was \
-                             dismissed or denied. Try again and accept, or check \
-                             your desktop's privacy / remote-desktop settings."
-                        .into(),
+                    source: format!(
+                        "timed out waiting for libei device after {timeout_secs}s.\n\
+                         Possible causes:\n  \
+                           - the RemoteDesktop portal dialog was dismissed or denied\n  \
+                           - portal cold-start took longer than the timeout \
+                             (KDE first-run can need more than {timeout_secs}s)\n  \
+                           - the portal accepted but didn't vend a usable input device\n  \
+                           - device negotiation didn't include a capability wdotool can drive\n\
+                         Check your desktop's privacy / remote-desktop settings and retry. \
+                         For portal logs: `journalctl --user -u 'xdg-desktop-portal*'`."
+                    )
+                    .into(),
                 });
             }
         }
