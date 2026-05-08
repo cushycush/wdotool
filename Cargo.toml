@@ -3,7 +3,7 @@ resolver = "2"
 members = ["wdotool-core", "wdotool", "wdotool-test-harness"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/cushycush/wdotool"

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-05-08
+
 ### Changed
 - libei backend: bumped the device-resume timeout from 5s to 15s. The old 5s was too tight for cold-start of `xdg-desktop-portal-kde`, which can take longer than 5s on a fresh boot. Override with `WDOTOOL_LIBEI_TIMEOUT_SECS=N` (any positive integer; values that don't parse as `u64` log a warning and fall back to the default).
 - libei backend: rewrote the device-resume timeout error to list candidate causes (dialog dismissed, portal cold-start, portal vended no device, capability mismatch) instead of asserting the user dismissed the dialog. Surfaced from a Plasma 6.6.4 / Manjaro report where the user accepted the dialog and still hit the timeout. Closes part of [#40](https://github.com/cushycush/wdotool/issues/40).
@@ -151,7 +153,8 @@ Initial release.
 - GNOME window backend is not yet implemented.
 - `type_text` Unicode support is full on wlroots (transient keymap) but best-effort on libei/uinput (bounded by the compositor's active keymap).
 
-[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/cushycush/wdotool/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/cushycush/wdotool/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/cushycush/wdotool/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cushycush/wdotool/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cushycush/wdotool/compare/v0.2.0...v0.3.0
