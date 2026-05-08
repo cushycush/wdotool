@@ -4,16 +4,16 @@
 # (uinput) or the host compositor (wlroots), depending on which
 # device or socket you mount in. See README.md for run examples.
 #
-# Build (Podman or Docker — file is a Dockerfile too):
+# Build (Podman or Docker; file is a valid Dockerfile too):
 #   podman build -t wdotool:latest -f packaging/container/Containerfile .
 #   docker build -t wdotool:latest -f packaging/container/Containerfile .
 #
 # Pin a different release with:
-#   podman build --build-arg WDOTOOL_VERSION=0.5.0 ...
+#   podman build --build-arg WDOTOOL_VERSION=0.5.1 ...
 
 FROM debian:bookworm-slim
 
-ARG WDOTOOL_VERSION=0.5.0
+ARG WDOTOOL_VERSION=0.5.1
 
 RUN set -eux; \
     apt-get update; \

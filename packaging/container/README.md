@@ -22,7 +22,7 @@ docker build -t wdotool:latest -f packaging/container/Containerfile .
 Pin a different release with the build arg:
 
 ```sh
-podman build --build-arg WDOTOOL_VERSION=0.5.0 -t wdotool:0.5.0 \
+podman build --build-arg WDOTOOL_VERSION=0.5.1 -t wdotool:0.5.1 \
     -f packaging/container/Containerfile .
 ```
 
@@ -41,7 +41,7 @@ podman run --rm \
     wdotool:latest --backend wlroots info
 ```
 
-`--userns=keep-id` is Podman-specific — it remaps the container UID to the host UID so the Wayland socket permissions match. Docker users either run as root inside the container (default) or set `--user $(id -u):$(id -g)`; in either case the socket needs to be readable by the container's effective UID.
+`--userns=keep-id` is Podman-specific. It remaps the container UID to the host UID so the Wayland socket permissions match. Docker users either run as root inside the container (default) or set `--user $(id -u):$(id -g)`; in either case the socket needs to be readable by the container's effective UID.
 
 ## Run: uinput backend (any compositor, including X11)
 
@@ -65,11 +65,11 @@ The Flatpak build at `packaging/flatpak/` already has the portal-forwarding wire
 
 Just `wdotool` and its runtime deps:
 
-- `libwayland-client0` — Wayland client library used by the wlroots backend
-- `libxkbcommon0` + `xkb-data` — keymap handling for `wdotool type`
-- `ca-certificates` — TLS trust roots (apt complains without them)
+- `libwayland-client0`: Wayland client library used by the wlroots backend
+- `libxkbcommon0` + `xkb-data`: keymap handling for `wdotool type`
+- `ca-certificates`: TLS trust roots (apt complains without them)
 
-Build-time `curl` is purged after the `.deb` install. Image size is around 80MB.
+Build-time `curl` is purged after the `.deb` install. Image lands around 140MB (verified on a 2026-05-08 build).
 
 ## Caveats
 
