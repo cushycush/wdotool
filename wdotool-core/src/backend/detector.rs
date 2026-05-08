@@ -153,13 +153,30 @@ pub async fn build(env: &Environment, forced: Option<BackendKind>) -> Result<Dyn
             // Walk the preference list; if the preferred backend fails to
             // bootstrap (portal unavailable, timeout, etc.) fall through to
             // the next. Only the final failure propagates.
+            //
+            // KDE and GNOME both compose LibeiBackend internally for input.
+            // If their init fails because libei itself timed out, retrying
+            // bare libei next does the same thing and times out again — net
+            // 2x wait before the user sees anything actionable. Track that
+            // case and skip the bare-libei retry.
             let order = priority(env);
             let mut last_err: Option<WdoError> = None;
+            let mut libei_just_failed = false;
             for kind in order {
+                if kind == BackendKind::Libei && libei_just_failed {
+                    debug!(
+                        backend = kind.label(),
+                        "skipping libei retry — it just failed via a composing backend"
+                    );
+                    continue;
+                }
                 info!(backend = kind.label(), "trying backend");
                 match build_one(kind).await {
                     Ok(b) => return Ok(b),
                     Err(err) => {
+                        if error_is_libei_failure(&err) {
+                            libei_just_failed = true;
+                        }
                         warn!(
                             backend = kind.label(),
                             ?err,
@@ -171,6 +188,18 @@ pub async fn build(env: &Environment, forced: Option<BackendKind>) -> Result<Dyn
             }
             Err(last_err.unwrap_or(WdoError::NoBackend))
         }
+    }
+}
+
+/// Returns true if `err` indicates a libei init failure — either a direct
+/// libei error, or a composing backend (kde-dbus, gnome-ext) reporting that
+/// its inner libei init failed. Used to skip a redundant bare-libei retry.
+fn error_is_libei_failure(err: &WdoError) -> bool {
+    match err {
+        WdoError::Backend { backend, source } => {
+            *backend == "libei" || source.to_string().contains("libei input init failed")
+        }
+        _ => false,
     }
 }
 
@@ -280,5 +309,53 @@ mod tests {
         assert!(env.desktop_is("GNOME"));
         assert!(env.desktop_is("ubuntu"));
         assert!(!env.desktop_is("KDE"));
+    }
+
+    #[test]
+    fn libei_failure_detected_on_direct_libei_error() {
+        let err = WdoError::Backend {
+            backend: "libei",
+            source: "timed out waiting for libei device after 15s".into(),
+        };
+        assert!(error_is_libei_failure(&err));
+    }
+
+    #[test]
+    fn libei_failure_detected_when_kde_wraps_libei_error() {
+        // kde.rs wraps inner libei errors with this exact prefix.
+        let err = WdoError::Backend {
+            backend: "kde-dbus",
+            source: "libei input init failed: timed out waiting for libei device".into(),
+        };
+        assert!(error_is_libei_failure(&err));
+    }
+
+    #[test]
+    fn libei_failure_detected_when_gnome_wraps_libei_error() {
+        let err = WdoError::Backend {
+            backend: "gnome-ext",
+            source: "libei input init failed: dispatcher ended before any device resumed".into(),
+        };
+        assert!(error_is_libei_failure(&err));
+    }
+
+    #[test]
+    fn libei_failure_not_detected_for_unrelated_kde_error() {
+        // KDE backend can fail for non-libei reasons (kwin script load, D-Bus
+        // service missing, etc.). Those should not suppress the libei retry.
+        let err = WdoError::Backend {
+            backend: "kde-dbus",
+            source: "kwin script load failed".into(),
+        };
+        assert!(!error_is_libei_failure(&err));
+    }
+
+    #[test]
+    fn libei_failure_not_detected_for_other_error_kinds() {
+        assert!(!error_is_libei_failure(&WdoError::NoBackend));
+        assert!(!error_is_libei_failure(&WdoError::NotSupported {
+            backend: "wlroots",
+            what: "no virtual_pointer",
+        }));
     }
 }
