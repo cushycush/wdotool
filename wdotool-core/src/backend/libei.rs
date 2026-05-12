@@ -19,7 +19,7 @@ use futures_util::StreamExt;
 use reis::ei;
 use reis::event::{self as rev, DeviceCapability, EiEvent};
 use tokio::sync::oneshot;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 use xkbcommon::xkb;
 
 use super::Backend;
@@ -436,11 +436,13 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
                 | DeviceCapability::Button
                 | DeviceCapability::Scroll;
             ev.seat.bind_capabilities(caps);
-            trace!("bound seat capabilities");
+            info!("libei SeatAdded, bound capabilities (kbd, ptr, ptr_abs, button, scroll)");
         }
         EiEvent::DeviceAdded(ev) => {
             let device = ev.device.clone();
+            let mut found = Vec::new();
             if device.has_capability(DeviceCapability::Keyboard) {
+                found.push("keyboard");
                 if let Some(keymap_info) = device.keymap() {
                     match load_keymap(keymap_info) {
                         Ok(km) => st.keymap = Some(SafeKeymap(km)),
@@ -450,16 +452,31 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
                 st.keyboard = Some(device.clone());
             }
             if device.has_capability(DeviceCapability::Pointer) {
+                found.push("pointer");
                 st.pointer = Some(device.clone());
             }
             if device.has_capability(DeviceCapability::PointerAbsolute) {
+                found.push("pointer_absolute");
                 st.pointer_abs = Some(device.clone());
             }
+            if device.has_capability(DeviceCapability::Button) {
+                found.push("button");
+            }
+            if device.has_capability(DeviceCapability::Scroll) {
+                found.push("scroll");
+            }
+            info!(caps = ?found, "libei DeviceAdded");
         }
         EiEvent::DeviceResumed(_) => {
-            return st.keyboard.is_some() || st.pointer.is_some() || st.pointer_abs.is_some();
+            let has_kbd = st.keyboard.is_some();
+            let has_ptr = st.pointer.is_some();
+            let has_ptr_abs = st.pointer_abs.is_some();
+            let ready = has_kbd || has_ptr || has_ptr_abs;
+            info!(has_kbd, has_ptr, has_ptr_abs, ready, "libei DeviceResumed");
+            return ready;
         }
         EiEvent::DeviceRemoved(ev) => {
+            info!("libei DeviceRemoved");
             if st.keyboard.as_ref() == Some(&ev.device) {
                 st.keyboard = None;
             }
@@ -473,7 +490,9 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
         EiEvent::Disconnected(d) => {
             warn!(reason = ?d.reason, "EIS disconnected: {:?}", d.explanation);
         }
-        _ => {}
+        other => {
+            debug!("libei event (other): {:?}", other);
+        }
     }
     false
 }
