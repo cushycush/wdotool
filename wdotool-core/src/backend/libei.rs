@@ -436,6 +436,11 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
                 | DeviceCapability::Button
                 | DeviceCapability::Scroll;
             ev.seat.bind_capabilities(caps);
+            // bind_capabilities only queues the seat.bind request; flush so
+            // the EIS server actually sees it and vends devices.
+            if let Err(err) = st.connection.flush() {
+                warn!(?err, "failed to flush libei seat bind_capabilities request");
+            }
             info!("libei SeatAdded, bound capabilities (kbd, ptr, ptr_abs, button, scroll)");
         }
         EiEvent::DeviceAdded(ev) => {
