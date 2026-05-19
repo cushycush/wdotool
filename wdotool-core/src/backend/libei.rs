@@ -208,7 +208,12 @@ enum DeviceChoice {
 impl DeviceChoice {
     fn missing_error(self) -> &'static str {
         match self {
-            Self::Keyboard => "no keyboard device from EIS",
+            Self::Keyboard => {
+                "no keyboard device from EIS. The portal accepted Keyboard in select_devices \
+                 but no ei_keyboard interface arrived on the seat. \
+                 On KDE, enable `kwin_libeis.debug=true` in `~/.config/QtProject/qtlogging.ini` \
+                 and check `journalctl --user -b _COMM=kwin_wayland`."
+            }
             Self::Pointer => "no relative-pointer device from EIS",
             Self::PointerAbsolute => "no absolute-pointer device from EIS",
         }
@@ -445,6 +450,8 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
         }
         EiEvent::DeviceAdded(ev) => {
             let device = ev.device.clone();
+            let name = device.name().unwrap_or("<unnamed>").to_string();
+            let device_type = format!("{:?}", device.device_type());
             let mut found = Vec::new();
             if device.has_capability(DeviceCapability::Keyboard) {
                 found.push("keyboard");
@@ -470,7 +477,10 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
             if device.has_capability(DeviceCapability::Scroll) {
                 found.push("scroll");
             }
-            info!(caps = ?found, "libei DeviceAdded");
+            if device.has_capability(DeviceCapability::Touch) {
+                found.push("touch");
+            }
+            info!(name, device_type, caps = ?found, "libei DeviceAdded");
         }
         EiEvent::DeviceResumed(_) => {
             let has_kbd = st.keyboard.is_some();
