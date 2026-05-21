@@ -45,26 +45,95 @@ Edit this file in a fork or a branch, fill in the matrix, open a PR. That PR is 
 
 | Operation | Default | Frac 125% | Frac 175% | Mixed-scale | Session restart | Fcitx5 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `info` | | | | | | |
-| `key` (ASCII chord) | | | | | | |
-| `type` (ASCII text) | | | | | | |
-| `type` (Unicode 中文 / emoji) | | | | | | |
-| `mousemove` (absolute) | | | | | | |
-| `mousemove` (relative) | | | | | | |
-| `click` | | | | | | |
-| `mousedown` / `mouseup` | | | | | | |
-| `scroll` | | | | | | |
-| `search` | | | | | | |
-| `getactivewindow` | | | | | | |
-| `windowactivate` | | | | | | |
-| `windowclose` | | | | | | |
+| `info` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | ✅ **PASS** |
+| `key` (ASCII chord) | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
+| `type` (ASCII text) | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | ✅ **PASS** |
+| `type` (Unicode 中文 / emoji) | ❌ **FAIL** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A | ❌ **FAIL** |
+| `mousemove` (absolute) | ✅ **PASS** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A |
+| `mousemove` (relative) | ✅ **PASS** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A |
+| `click` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
+| `mousedown` / `mouseup` | ❌ **FAIL** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A |
+| `scroll` | ✅ **PASS** (with a note bellow) | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
+| `search` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
+| `getactivewindow` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
+| `windowactivate` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
+| `windowclose` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
 
 Plus two special cells, run only once each rather than once per condition:
 
 | Special test | Status | Notes |
 | --- | --- | --- |
-| Token revoke + recovery (run "Revoke" in System Settings → Privacy → Remote Desktop after first run, then `wdotool key a` again, expect a new consent dialog) | | |
-| wflow 5-step workflow (open Konsole, type a command, click, focus a window, close it; one consent dialog total, all 5 steps succeed) | | |
+| Token revoke + recovery (run "%APP% -> Manage X Sessions -> Revoke" in System Settings → Security & Privacy → Application Permissions  after first run, then `wdotool key a` again, expect a new consent dialog) | ✅ **PASS** | |
+| wflow 5-step workflow (open Konsole, type a command, click, focus a window, close it; one consent dialog total, all 5 steps succeed) | ❌ **FAIL** | It seems wflow has to be recompiled with latest wdotool (see the error below)|
+
+### Fails
+
+#### `type` (Unicode 中文 / emoji)
+
+```
+❯ sleep 2; ./target/release/wdotool type "中文 · ❤️"
+2026-05-21T06:35:22.528423Z  INFO trying backend backend="kde-dbus"
+2026-05-21T06:35:22.559547Z  INFO libei portal start: device types granted granted=BitFlags<DeviceType>(0b11, Keyboard | Pointer) used_cached_token=true
+2026-05-21T06:35:22.566966Z  INFO libei SeatAdded, two-stage bind (kbd first, then full set; KDE workaround) seat_name="wdotool seat"
+2026-05-21T06:35:22.567907Z  INFO libei DeviceAdded name="wdotool eis keyboard" device_type="Virtual" caps=["keyboard"]
+2026-05-21T06:35:22.567917Z  INFO libei DeviceResumed has_kbd=true has_ptr=false has_ptr_abs=false ready=true
+2026-05-21T06:35:22.567943Z  INFO libei DeviceAdded name="wdotool eis absolute device" device_type="Virtual" caps=["pointer_absolute", "button", "scroll"]
+2026-05-21T06:35:22.567947Z  INFO libei DeviceResumed has_kbd=true has_ptr=false has_ptr_abs=true ready=true
+2026-05-21T06:35:22.567953Z  INFO libei DeviceAdded name="wdotool eis pointer" device_type="Virtual" caps=["pointer", "button", "scroll"]
+2026-05-21T06:35:22.567956Z  INFO libei DeviceResumed has_kbd=true has_ptr=true has_ptr_abs=true ready=true
+2026-05-21T06:35:22.568136Z  WARN libei type_text: 5 char(s) not in server keymap: ['中', '文', '·', '❤', '\u{fe0f}']
+```
+
+#### `mousemove` (absolute)
+
+I think `mousemove` absolute doesn't behave correctly with scale 125%. The cursor moves, but the end coordinates are wrong. I have 3840x2160 resolution display and with 125% scale asking wdotool to move mouse to 1920 0 lands the cursor further to the right (I guess 1920 * 1.25 = 2400). Is this a correct behavior?
+
+#### `mousemove` (relative)
+
+The same issue as with absolute. If I ask to move the cursor by 1920 from 0 coordinate wdotool moves it to 2400.
+
+#### `mousedown` / `mouseup`
+
+I believe `mousedown` was registered, but I wasn't able to drag the window. I redid the test while focusing maximize button and the window became maximized by `mousedown`, so I guess `mouseup` was issued as well?. Logs:
+
+```
+❯ ./target/release/wdotool mousedown 1
+026-05-21T06:43:09.585887Z  INFO trying backend backend="kde-dbus"
+2026-05-21T06:43:09.613654Z  INFO libei portal start: device types granted granted=BitFlags<DeviceType>(0b11, Keyboard | Pointer) used_cached_token=true
+2026-05-21T06:43:09.621006Z  INFO libei SeatAdded, two-stage bind (kbd first, then full set; KDE workaround) seat_name="wdotool seat"
+2026-05-21T06:43:09.621856Z  INFO libei DeviceAdded name="wdotool eis keyboard" device_type="Virtual" caps=["keyboard"]
+2026-05-21T06:43:09.621866Z  INFO libei DeviceResumed has_kbd=true has_ptr=false has_ptr_abs=false ready=true
+2026-05-21T06:43:09.621887Z  INFO libei DeviceAdded name="wdotool eis absolute device" device_type="Virtual" caps=["pointer_absolute", "button", "scroll"]
+2026-05-21T06:43:09.621890Z  INFO libei DeviceResumed has_kbd=true has_ptr=false has_ptr_abs=true ready=true
+2026-05-21T06:43:09.621895Z  INFO libei DeviceAdded name="wdotool eis pointer" device_type="Virtual" caps=["pointer", "button", "scroll"]
+2026-05-21T06:43:09.621897Z  INFO libei DeviceResumed has_kbd=true has_ptr=true has_ptr_abs=true ready=true
+```
+
+#### `scroll`
+
+`scroll` works for Brave Browser and Alacritty, but not for Zed (editor). 
+
+```
+❯ ./target/release/wdotool scroll 42 42
+2026-05-21T06:46:35.680046Z  INFO trying backend backend="kde-dbus"
+2026-05-21T06:46:35.704935Z  INFO libei portal start: device types granted granted=BitFlags<DeviceType>(0b11, Keyboard | Pointer) used_cached_token=true
+2026-05-21T06:46:35.712522Z  INFO libei SeatAdded, two-stage bind (kbd first, then full set; KDE workaround) seat_name="wdotool seat"
+2026-05-21T06:46:35.713397Z  INFO libei DeviceAdded name="wdotool eis keyboard" device_type="Virtual" caps=["keyboard"]
+2026-05-21T06:46:35.713406Z  INFO libei DeviceResumed has_kbd=true has_ptr=false has_ptr_abs=false ready=true
+2026-05-21T06:46:35.713434Z  INFO libei DeviceAdded name="wdotool eis absolute device" device_type="Virtual" caps=["pointer_absolute", "button", "scroll"]
+2026-05-21T06:46:35.713439Z  INFO libei DeviceResumed has_kbd=true has_ptr=false has_ptr_abs=true ready=true
+2026-05-21T06:46:35.713447Z  INFO libei DeviceAdded name="wdotool eis pointer" device_type="Virtual" caps=["pointer", "button", "scroll"]
+2026-05-21T06:46:35.713450Z  INFO libei DeviceResumed has_kbd=true has_ptr=true has_ptr_abs=true ready=true
+```
+
+#### wflow 5-step workflow
+
+```
+2026-05-21T08:05:00.269690Z  WARN wdotool_core::backend::detector: backend unavailable, trying next backend="kde-dbus" err=Backend { backend: "kde-dbus", source: "libei input init failed: backend 'libei' failed: timed out waiting for libei device.\nCommon cause: the RemoteDesktop portal dialog was dismissed or denied. Try again and accept, or check your desktop's privacy / remote-desktop settings." }
+2026-05-21T08:05:05.304590Z  WARN wdotool_core::backend::detector: backend unavailable, trying next backend="libei" err=Backend { backend: "libei", source: "timed out waiting for libei device.\nCommon cause: the RemoteDesktop portal dialog was dismissed or denied. Try again and accept, or check your desktop's privacy / remote-desktop settings." }
+2026-05-21T08:05:22.552511Z  WARN wdotool_core::backend::detector: backend unavailable, trying next backend="kde-dbus" err=Backend { backend: "kde-dbus", source: "libei input init failed: backend 'libei' failed: timed out waiting for libei device.\nCommon cause: the RemoteDesktop portal dialog was dismissed or denied. Try again and accept, or check your desktop's privacy / remote-desktop settings." }
+2026-05-21T08:05:27.587468Z  WARN wdotool_core::backend::detector: backend unavailable, trying next backend="libei" err=Backend { backend: "libei", source: "timed out waiting for libei device.\nCommon cause: the RemoteDesktop portal dialog was dismissed or denied. Try again and accept, or check your desktop's privacy / remote-desktop settings." }
+```
 
 ## What each operation should do
 
