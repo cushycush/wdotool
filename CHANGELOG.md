@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-05-21
+
+### Fixed
+- KDE window ops (`search`, `getactivewindow`, `windowactivate`, `windowclose`, `getmouselocation`, `getwindowgeometry`) work again on Plasma 6. The KDE backend was calling `org.kde.kwin.Scripting.loadScriptFromText`, which Plasma 6 removed. `run_kwin_script` now writes the generated JS to a tempfile, calls `loadScript(filePath, pluginName)` with a per-call plugin name, and executes via the per-script `/Scripting/Script{id}` object's `run()` method instead of the old global `Scripting.start()`. Two non-obvious gotchas surfaced during live verification and are worth knowing about: KWin scripts in Plasma 6 can't reach well-known D-Bus names from `callDBus` (the call dispatches but never arrives at the handler), so the bridge now routes through the session bus unique name; and `callDBus` serializes JS numbers as `int32`, while the bridge was advertising `u64` for `req_id`, so zbus was silently dropping every callback. Both fixed. Verified end-to-end on Plasma 6.6.5 / KWin 6.6.5. Closes [#45](https://github.com/cushycush/wdotool/issues/45).
+
 ## [0.5.2] - 2026-05-21
 
 ### Added
