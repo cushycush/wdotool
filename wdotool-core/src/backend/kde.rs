@@ -1,20 +1,31 @@
-//! KDE backend — libei input plus KWin-scripting window management over D-Bus.
+//! KDE backend: libei input plus KWin-scripting window management over D-Bus.
 //!
 //! The window half uses the same trick as `kdotool`: generate a JavaScript
-//! snippet, hand it to `org.kde.KWin.Scripting.loadScriptFromText`, run it,
-//! and let the script call back into a zbus service we registered at
-//! startup. This avoids the `print`-signal-scraping approach (fragile and
-//! needs journal access) and works on Plasma 5 and 6 identically.
+//! snippet, write it to a temp file, hand the path to
+//! `org.kde.kwin.Scripting.loadScript(path, pluginName)`, run it via the
+//! per-script `org.kde.kwin.Script.run()` method, and let the script call
+//! back into a zbus service we registered at startup. The callback shape
+//! is more reliable than scraping `print`-signal output from the journal
+//! and works on Plasma 5 and 6 identically.
+//!
+//! We used to use `loadScriptFromText`, which took the JS as a string and
+//! ran it synchronously. Plasma 6 removed that method from the public
+//! Scripting interface, so every window op was failing with
+//! "org.freedesktop.DBus.Error.UnknownMethod" on Plasma 6 sessions.
+//! The file-based `loadScript` path is what KWin master still exposes
+//! and what kdotool uses.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::io::Write;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use tempfile::TempPath;
 use tokio::sync::{oneshot, Mutex};
-use tracing::debug;
+use tracing::{debug, warn};
 use zbus::{interface, proxy, Connection};
 
 use super::libei::LibeiBackend;
@@ -24,28 +35,46 @@ use crate::types::{Capabilities, KeyDirection, MouseButton, WindowGeometry, Wind
 
 const NAME: &str = "kde-dbus";
 
-const BRIDGE_SERVICE: &str = "com.wdotool.KdeBridge";
 const BRIDGE_PATH: &str = "/com/wdotool/KdeBridge";
 const BRIDGE_IFACE: &str = "com.wdotool.KdeBridge";
 
 pub struct KdeBackend {
     libei: LibeiBackend,
     conn: Connection,
+    /// Our session bus unique name (e.g. `:1.123`). The KWin scripts we
+    /// load call back here via `callDBus`. We used to use a well-known
+    /// name, but Plasma 6's `loadScript`-loaded scripts can't reach
+    /// well-known names from inside KWin's scripting D-Bus context;
+    /// the unique name is the only address that gets through.
+    bridge_addr: String,
     pending: Arc<Mutex<PendingState>>,
-    next_id: AtomicU64,
+    /// `i32` because KWin's `callDBus` serializes JS numbers as int32 on
+    /// the wire, and the bridge methods have to advertise a matching
+    /// signature; otherwise zbus silently drops the call.
+    next_id: AtomicI32,
     input_caps: Capabilities,
+}
+
+/// A loaded KWin script that still needs unloading.
+///
+/// The `TempPath` keeps the script file on disk until the handle drops.
+/// We hold the script file alive until after the callback arrives because
+/// some KWin versions read the file lazily.
+struct KwinScriptHandle {
+    plugin_name: String,
+    _path: TempPath,
 }
 
 #[derive(Default)]
 struct PendingState {
-    list_waiters: HashMap<u64, oneshot::Sender<String>>,
-    active_waiters: HashMap<u64, oneshot::Sender<String>>,
-    action_waiters: HashMap<u64, oneshot::Sender<bool>>,
-    pointer_waiters: HashMap<u64, oneshot::Sender<Option<(i32, i32)>>>,
+    list_waiters: HashMap<i32, oneshot::Sender<String>>,
+    active_waiters: HashMap<i32, oneshot::Sender<String>>,
+    action_waiters: HashMap<i32, oneshot::Sender<bool>>,
+    pointer_waiters: HashMap<i32, oneshot::Sender<Option<(i32, i32)>>>,
     /// `Option<WindowGeometry>` lets us distinguish "found, here it is"
     /// (`Some(geom)`) from "id didn't match any window" (`None`),
     /// which the caller turns into `Err(WdoError::WindowNotFound)`.
-    geometry_waiters: HashMap<u64, oneshot::Sender<Option<WindowGeometry>>>,
+    geometry_waiters: HashMap<i32, oneshot::Sender<Option<WindowGeometry>>>,
 }
 
 /// D-Bus interface our KWin scripts call back into. Names are PascalCase on
@@ -57,21 +86,21 @@ struct Bridge {
 
 #[interface(name = "com.wdotool.KdeBridge")]
 impl Bridge {
-    async fn report_windows(&self, req_id: u64, json: String) {
+    async fn report_windows(&self, req_id: i32, json: String) {
         let sender = self.pending.lock().await.list_waiters.remove(&req_id);
         if let Some(tx) = sender {
             let _ = tx.send(json);
         }
     }
 
-    async fn report_active(&self, req_id: u64, json: String) {
+    async fn report_active(&self, req_id: i32, json: String) {
         let sender = self.pending.lock().await.active_waiters.remove(&req_id);
         if let Some(tx) = sender {
             let _ = tx.send(json);
         }
     }
 
-    async fn report_action(&self, req_id: u64, ok: bool) {
+    async fn report_action(&self, req_id: i32, ok: bool) {
         let sender = self.pending.lock().await.action_waiters.remove(&req_id);
         if let Some(tx) = sender {
             let _ = tx.send(ok);
@@ -84,7 +113,7 @@ impl Bridge {
     /// `Ok(None)`. xdotool's getmouselocation only ever returns
     /// coordinates, so this two-stage shape exists purely for safety
     /// against the rare "cursor not on any screen" case.
-    async fn report_pointer(&self, req_id: u64, ok: bool, x: i32, y: i32) {
+    async fn report_pointer(&self, req_id: i32, ok: bool, x: i32, y: i32) {
         let sender = self.pending.lock().await.pointer_waiters.remove(&req_id);
         if let Some(tx) = sender {
             let _ = tx.send(if ok { Some((x, y)) } else { None });
@@ -97,7 +126,7 @@ impl Bridge {
     /// fields carry the frame rect.
     async fn report_geometry(
         &self,
-        req_id: u64,
+        req_id: i32,
         found: bool,
         x: i32,
         y: i32,
@@ -127,14 +156,25 @@ impl Bridge {
     default_path = "/Scripting"
 )]
 trait KwinScripting {
-    #[zbus(name = "loadScriptFromText")]
-    fn load_script_from_text(&self, source: &str, name: &str) -> zbus::Result<i32>;
-    fn start(&self) -> zbus::Result<()>;
+    #[zbus(name = "loadScript")]
+    fn load_script(&self, file_path: &str, plugin_name: &str) -> zbus::Result<i32>;
+    #[zbus(name = "unloadScript")]
+    fn unload_script(&self, plugin_name: &str) -> zbus::Result<bool>;
 }
 
+/// Per-script proxy. Path is `/Scripting/Script{id}` where `id` is the
+/// integer that `loadScript` returned. Calling `run()` here is what
+/// actually executes the script on Plasma 6; the old `Scripting.start()`
+/// trick relied on `loadScriptFromText`'s auto-start behavior, which is
+/// no longer available.
 #[proxy(interface = "org.kde.kwin.Script", default_service = "org.kde.KWin")]
 trait KwinScript {
+    // zbus's default rename is camelCase → PascalCase (`run` → `Run`),
+    // but KWin's interface is lower-camelCase, so pin the names explicitly.
+    #[zbus(name = "run")]
     fn run(&self) -> zbus::Result<()>;
+    #[zbus(name = "stop")]
+    fn stop(&self) -> zbus::Result<()>;
 }
 
 #[derive(Deserialize)]
@@ -184,41 +224,101 @@ impl KdeBackend {
             )
             .await
             .map_err(dbus_err)?;
-        conn.request_name(BRIDGE_SERVICE).await.map_err(dbus_err)?;
 
-        debug!("kde bridge registered at {BRIDGE_PATH}");
+        // The bridge address the script will call back on. We don't
+        // `request_name` a well-known name because Plasma 6's
+        // `loadScript`-loaded scripts can't reach well-known names via
+        // `callDBus` (the calls dispatch but never arrive). Routing to
+        // our unique session-bus name is what kdotool does too.
+        let bridge_addr = conn
+            .unique_name()
+            .ok_or_else(|| WdoError::Backend {
+                backend: NAME,
+                source: "session bus did not assign a unique name".into(),
+            })?
+            .to_string();
+
+        debug!("kde bridge registered at {BRIDGE_PATH} on {bridge_addr}");
         Ok(Self {
             libei,
             conn,
+            bridge_addr,
             pending,
-            next_id: AtomicU64::new(1),
+            next_id: AtomicI32::new(1),
             input_caps,
         })
     }
 
-    fn next_request_id(&self) -> u64 {
+    fn next_request_id(&self) -> i32 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    async fn run_kwin_script(&self, script: &str) -> Result<()> {
+    /// Load and run a KWin script. Returns a handle whose lifetime keeps
+    /// the temp file alive; call `cleanup_script` after the callback
+    /// arrives (or on timeout) to unload the script in KWin and remove
+    /// the file.
+    async fn run_kwin_script(&self, req_id: i32, script: &str) -> Result<KwinScriptHandle> {
+        // Each loaded script needs a unique plugin name; KWin rejects
+        // `loadScript` if a plugin with the same name is already loaded.
+        // PID + req_id is unique within a process and across the rare
+        // overlap with another wdotool instance.
+        let plugin_name = format!("wdotool-{}-{}", std::process::id(), req_id);
+
+        let mut tmp = tempfile::Builder::new()
+            .prefix("wdotool-")
+            .suffix(".js")
+            .tempfile()
+            .map_err(io_err)?;
+        tmp.write_all(script.as_bytes()).map_err(io_err)?;
+        tmp.flush().map_err(io_err)?;
+        let path = tmp.into_temp_path();
+        let path_str = path.to_str().ok_or_else(|| WdoError::Backend {
+            backend: NAME,
+            source: "temp script path is not valid UTF-8".into(),
+        })?;
+
         let scripting = KwinScriptingProxy::new(&self.conn)
             .await
             .map_err(dbus_err)?;
         let script_id = scripting
-            .load_script_from_text(script, "wdotool")
+            .load_script(path_str, &plugin_name)
             .await
             .map_err(dbus_err)?;
         if script_id < 0 {
             return Err(WdoError::Backend {
                 backend: NAME,
-                source: format!("loadScriptFromText returned {script_id}").into(),
+                source: format!("loadScript returned {script_id}").into(),
             });
         }
-        // Plasma 6 runs newly-loaded scripts when `start()` is called on
-        // the Scripting object; Plasma 5 auto-starts on load. Calling
-        // start() is idempotent on both.
-        let _ = scripting.start().await;
-        Ok(())
+
+        // Plasma 6 does not auto-run loaded scripts; we have to call
+        // `run()` on the per-script object at /Scripting/Script{id}.
+        let script_path = format!("/Scripting/Script{script_id}");
+        let script_proxy = KwinScriptProxy::builder(&self.conn)
+            .path(script_path.clone())
+            .map_err(dbus_err)?
+            .build()
+            .await
+            .map_err(dbus_err)?;
+        script_proxy.run().await.map_err(dbus_err)?;
+
+        Ok(KwinScriptHandle {
+            plugin_name,
+            _path: path,
+        })
+    }
+
+    /// Best-effort cleanup: tell KWin to drop the script and let the
+    /// temp file get unlinked. Errors are logged and swallowed because
+    /// a stale leftover is harmless (next call uses a fresh plugin name
+    /// and a fresh temp file).
+    async fn cleanup_script(&self, handle: KwinScriptHandle) {
+        if let Ok(scripting) = KwinScriptingProxy::new(&self.conn).await {
+            if let Err(e) = scripting.unload_script(&handle.plugin_name).await {
+                warn!("kde: unloadScript({}) failed: {e}", handle.plugin_name);
+            }
+        }
+        // `handle._path` drops here, which removes the temp file.
     }
 
     async fn list_windows_impl(&self) -> Result<Vec<WindowInfo>> {
@@ -226,11 +326,13 @@ impl KdeBackend {
         let (tx, rx) = oneshot::channel::<String>();
         self.pending.lock().await.list_waiters.insert(req_id, tx);
 
-        let script = list_windows_script(req_id);
-        self.run_kwin_script(&script).await?;
+        let script = list_windows_script(req_id, &self.bridge_addr);
+        let handle = self.run_kwin_script(req_id, &script).await?;
 
-        let json = tokio::time::timeout(Duration::from_secs(3), rx)
-            .await
+        let wait = tokio::time::timeout(Duration::from_secs(3), rx).await;
+        self.cleanup_script(handle).await;
+
+        let json = wait
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
                 source: "timed out waiting for KWin script callback".into(),
@@ -253,11 +355,13 @@ impl KdeBackend {
         let (tx, rx) = oneshot::channel::<String>();
         self.pending.lock().await.active_waiters.insert(req_id, tx);
 
-        let script = active_window_script(req_id);
-        self.run_kwin_script(&script).await?;
+        let script = active_window_script(req_id, &self.bridge_addr);
+        let handle = self.run_kwin_script(req_id, &script).await?;
 
-        let json = tokio::time::timeout(Duration::from_secs(3), rx)
-            .await
+        let wait = tokio::time::timeout(Duration::from_secs(3), rx).await;
+        self.cleanup_script(handle).await;
+
+        let json = wait
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
                 source: "timed out waiting for KWin script callback".into(),
@@ -286,11 +390,13 @@ impl KdeBackend {
             .geometry_waiters
             .insert(req_id, tx);
 
-        let script = window_geometry_script(req_id, target_id);
-        self.run_kwin_script(&script).await?;
+        let script = window_geometry_script(req_id, target_id, &self.bridge_addr);
+        let handle = self.run_kwin_script(req_id, &script).await?;
 
-        let result = tokio::time::timeout(Duration::from_secs(3), rx)
-            .await
+        let wait = tokio::time::timeout(Duration::from_secs(3), rx).await;
+        self.cleanup_script(handle).await;
+
+        let result = wait
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
                 source: "timed out waiting for KWin geometry callback".into(),
@@ -315,11 +421,13 @@ impl KdeBackend {
         let (tx, rx) = oneshot::channel::<Option<(i32, i32)>>();
         self.pending.lock().await.pointer_waiters.insert(req_id, tx);
 
-        let script = pointer_position_script(req_id);
-        self.run_kwin_script(&script).await?;
+        let script = pointer_position_script(req_id, &self.bridge_addr);
+        let handle = self.run_kwin_script(req_id, &script).await?;
 
-        let result = tokio::time::timeout(Duration::from_secs(3), rx)
-            .await
+        let wait = tokio::time::timeout(Duration::from_secs(3), rx).await;
+        self.cleanup_script(handle).await;
+
+        let result = wait
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
                 source: "timed out waiting for KWin pointer callback".into(),
@@ -338,17 +446,19 @@ impl KdeBackend {
     async fn call_action(
         &self,
         what: &'static str,
-        build_script: impl FnOnce(u64) -> String,
+        build_script: impl FnOnce(i32) -> String,
     ) -> Result<bool> {
         let req_id = self.next_request_id();
         let (tx, rx) = oneshot::channel::<bool>();
         self.pending.lock().await.action_waiters.insert(req_id, tx);
 
         let script = build_script(req_id);
-        self.run_kwin_script(&script).await?;
+        let handle = self.run_kwin_script(req_id, &script).await?;
 
-        let ok = tokio::time::timeout(Duration::from_secs(3), rx)
-            .await
+        let wait = tokio::time::timeout(Duration::from_secs(3), rx).await;
+        self.cleanup_script(handle).await;
+
+        let ok = wait
             .map_err(|_| WdoError::Backend {
                 backend: NAME,
                 source: format!("timed out waiting for KWin {what} callback").into(),
@@ -365,9 +475,16 @@ fn dbus_err(e: zbus::Error) -> WdoError {
     }
 }
 
+fn io_err(e: std::io::Error) -> WdoError {
+    WdoError::Backend {
+        backend: NAME,
+        source: Box::new(e),
+    }
+}
+
 // ---- JS script generators --------------------------------------------------
 
-fn list_windows_script(req_id: u64) -> String {
+fn list_windows_script(req_id: i32, bridge_addr: &str) -> String {
     format!(
         r#"
 (function() {{
@@ -390,14 +507,14 @@ fn list_windows_script(req_id: u64) -> String {
   );
 }})();
 "#,
-        service = BRIDGE_SERVICE,
+        service = bridge_addr,
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id
     )
 }
 
-fn active_window_script(req_id: u64) -> String {
+fn active_window_script(req_id: i32, bridge_addr: &str) -> String {
     format!(
         r#"
 (function() {{
@@ -417,14 +534,14 @@ fn active_window_script(req_id: u64) -> String {
   );
 }})();
 "#,
-        service = BRIDGE_SERVICE,
+        service = bridge_addr,
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id
     )
 }
 
-fn window_geometry_script(req_id: u64, target_id: &str) -> String {
+fn window_geometry_script(req_id: i32, target_id: &str, bridge_addr: &str) -> String {
     // window.frameGeometry is a QRect with x, y, width, height. We
     // walk the same window list that list_windows uses, find the one
     // matching the requested id, and report its geometry. If no
@@ -460,7 +577,7 @@ fn window_geometry_script(req_id: u64, target_id: &str) -> String {
   );
 }})();
 "#,
-        service = BRIDGE_SERVICE,
+        service = bridge_addr,
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id,
@@ -468,7 +585,7 @@ fn window_geometry_script(req_id: u64, target_id: &str) -> String {
     )
 }
 
-fn pointer_position_script(req_id: u64) -> String {
+fn pointer_position_script(req_id: i32, bridge_addr: &str) -> String {
     // workspace.cursorPos returns a QPoint with .x and .y in compositor
     // coordinates. Coerce to plain numbers so `callDBus` sends them as
     // i32, matching the Bridge::report_pointer signature.
@@ -483,7 +600,7 @@ fn pointer_position_script(req_id: u64) -> String {
   );
 }})();
 "#,
-        service = BRIDGE_SERVICE,
+        service = bridge_addr,
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id
@@ -497,7 +614,7 @@ fn js_string_literal(s: &str) -> String {
     serde_json::to_string(s).expect("serde_json cannot fail on &str")
 }
 
-fn activate_window_script(req_id: u64, target_id: &str) -> String {
+fn activate_window_script(req_id: i32, target_id: &str, bridge_addr: &str) -> String {
     format!(
         r#"
 (function() {{
@@ -521,7 +638,7 @@ fn activate_window_script(req_id: u64, target_id: &str) -> String {
   );
 }})();
 "#,
-        service = BRIDGE_SERVICE,
+        service = bridge_addr,
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id,
@@ -529,7 +646,7 @@ fn activate_window_script(req_id: u64, target_id: &str) -> String {
     )
 }
 
-fn close_window_script(req_id: u64, target_id: &str) -> String {
+fn close_window_script(req_id: i32, target_id: &str, bridge_addr: &str) -> String {
     format!(
         r#"
 (function() {{
@@ -557,7 +674,7 @@ fn close_window_script(req_id: u64, target_id: &str) -> String {
   );
 }})();
 "#,
-        service = BRIDGE_SERVICE,
+        service = bridge_addr,
         path = BRIDGE_PATH,
         iface = BRIDGE_IFACE,
         id = req_id,
@@ -622,7 +739,9 @@ impl Backend for KdeBackend {
 
     async fn activate_window(&self, id: &WindowId) -> Result<()> {
         let ok = self
-            .call_action("activate", |req_id| activate_window_script(req_id, &id.0))
+            .call_action("activate", |req_id| {
+                activate_window_script(req_id, &id.0, &self.bridge_addr)
+            })
             .await?;
         if !ok {
             return Err(WdoError::WindowNotFound(id.0.clone()));
@@ -632,7 +751,9 @@ impl Backend for KdeBackend {
 
     async fn close_window(&self, id: &WindowId) -> Result<()> {
         let ok = self
-            .call_action("close", |req_id| close_window_script(req_id, &id.0))
+            .call_action("close", |req_id| {
+                close_window_script(req_id, &id.0, &self.bridge_addr)
+            })
             .await?;
         if !ok {
             return Err(WdoError::WindowNotFound(id.0.clone()));
@@ -647,9 +768,10 @@ mod tests {
 
     #[test]
     fn list_and_active_scripts_embed_request_id_and_bridge_addr() {
-        let s = list_windows_script(42);
+        let addr = ":1.42";
+        let s = list_windows_script(42, addr);
         assert!(s.contains("\"ReportWindows\""));
-        assert!(s.contains(BRIDGE_SERVICE));
+        assert!(s.contains(addr));
         assert!(s.contains(BRIDGE_PATH));
         assert!(s.contains(BRIDGE_IFACE));
         assert!(s.contains("42"));
@@ -657,7 +779,7 @@ mod tests {
         assert!(s.contains("windowList"));
         assert!(s.contains("clientList"));
 
-        let s = active_window_script(7);
+        let s = active_window_script(7, addr);
         assert!(s.contains("\"ReportActive\""));
         assert!(s.contains("activeWindow"));
         assert!(s.contains("activeClient"));
@@ -669,17 +791,32 @@ mod tests {
         // A target id with JS-meaningful chars (quotes, backslashes, a newline)
         // must come out as a valid JS string literal — not a Rust Debug repr.
         let weird = "ab\"c\\d\ne";
-        let s = activate_window_script(1, weird);
+        let addr = ":1.99";
+        let s = activate_window_script(1, weird, addr);
         // JSON encodes " → \" and \ → \\ and \n → \n, and wraps in double quotes.
         assert!(s.contains(r#"var target = "ab\"c\\d\ne";"#));
         assert!(s.contains("ReportAction"));
         assert!(s.contains("workspace.activeWindow = w"));
 
-        let s = close_window_script(1, weird);
+        let s = close_window_script(1, weird, addr);
         assert!(s.contains(r#"var target = "ab\"c\\d\ne";"#));
         // Plasma 6 uses closeWindow, Plasma 5 uses close — both dispatched.
         assert!(s.contains("closeWindow"));
         assert!(s.contains("w.close()"));
+    }
+
+    #[test]
+    fn request_id_renders_as_bare_number_for_int32_wire_signature() {
+        // KWin's JS `callDBus` serializes plain numeric literals as
+        // int32 on the bus, and the bridge methods advertise an int32
+        // signature to match. If a script generator ever wrapped the
+        // id in quotes (sending it as a string), zbus would silently
+        // drop the call and every window op would just time out.
+        let s = list_windows_script(99, ":1.42");
+        // Three trailing-comma positions where the id appears as a literal.
+        assert!(s.contains("\"ReportWindows\",\n    99,"));
+        // No accidental "99" anywhere.
+        assert!(!s.contains("\"99\""));
     }
 
     #[test]
