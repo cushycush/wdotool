@@ -349,6 +349,12 @@ async fn open_context() -> Result<ei::Context> {
         Err(err) => return Err(portal_err(err)),
     };
 
+    info!(
+        granted = ?selected.devices(),
+        used_cached_token = used_cached,
+        "libei portal start: device types granted"
+    );
+
     // Only persist on Some. The portal can return None on a successful
     // start (e.g., user opted out of "remember this choice"); in that
     // case leaving the previous cache untouched is correct — a stale
@@ -435,18 +441,31 @@ fn portal_err(e: ashpd::Error) -> WdoError {
 fn handle_event(st: &mut State, event: EiEvent) -> bool {
     match event {
         EiEvent::SeatAdded(ev) => {
-            let caps: BitFlags<DeviceCapability> = DeviceCapability::Keyboard
+            // KWin's EIS backend (as of Plasma 6.6.5) silently drops the
+            // keyboard device if Keyboard is bound in the same
+            // ei_seat.bind call as Pointer or PointerAbsolute. Binding
+            // Keyboard with only Button/Scroll, or alone, works fine. So
+            // we bind keyboard first to get the keyboard device created,
+            // then bind the full set; the second bind keeps the existing
+            // keyboard device and triggers pointer/absolute creation.
+            // Upstream: https://bugs.kde.org/show_bug.cgi?id=520464
+            let caps_all: BitFlags<DeviceCapability> = DeviceCapability::Keyboard
                 | DeviceCapability::Pointer
                 | DeviceCapability::PointerAbsolute
                 | DeviceCapability::Button
                 | DeviceCapability::Scroll;
-            ev.seat.bind_capabilities(caps);
-            // bind_capabilities only queues the seat.bind request; flush so
-            // the EIS server actually sees it and vends devices.
+            ev.seat.bind_capabilities(DeviceCapability::Keyboard.into());
             if let Err(err) = st.connection.flush() {
-                warn!(?err, "failed to flush libei seat bind_capabilities request");
+                warn!(?err, "failed to flush libei seat bind (stage 1, keyboard)");
             }
-            info!("libei SeatAdded, bound capabilities (kbd, ptr, ptr_abs, button, scroll)");
+            ev.seat.bind_capabilities(caps_all);
+            if let Err(err) = st.connection.flush() {
+                warn!(?err, "failed to flush libei seat bind (stage 2, full set)");
+            }
+            info!(
+                seat_name = ev.seat.name().unwrap_or("<unnamed>"),
+                "libei SeatAdded, two-stage bind (kbd first, then full set; KDE workaround)"
+            );
         }
         EiEvent::DeviceAdded(ev) => {
             let device = ev.device.clone();
