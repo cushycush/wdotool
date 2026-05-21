@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-05-21
+
 ### Added
 - `packaging/container/` ships a Containerfile (Podman-native, Docker-compatible) and a README with run examples for the wlroots and uinput backends. Image is Debian-slim plus the runtime deps (`libwayland-client0`, `libxkbcommon0`, `xkb-data`); the wdotool binary is installed from a release `.deb`. libei / kde / gnome backends aren't covered because forwarding `xdg-desktop-portal` into a container is fiddly across distros and the Flatpak build is a more reliable path for those. Closes [#39](https://github.com/cushycush/wdotool/issues/39).
 
 ### Changed
 - The wlroots backend is now called wlr-protocols. The old name was misleading: the backend has no runtime dependency on the wlroots library (Hyprland forked off wlroots a while back, Debian no longer lists it as a dependency, etc.). It targets the wlr-* protocol family that Sway, river, Wayfire, and Hyprland all implement independently. Reported on r/wayland during pre-release tester recruitment. Affected surfaces: `Backend::name()` returns `wlr-protocols`, `--backend wlr-protocols` is the canonical CLI value, the capabilities JSON schema lists `wlr-protocols` instead of `wlroots`, the `BackendKind` enum variant is `WlrProtocols`, and the source file moved to `wdotool-core/src/backend/wlr_protocols.rs`. `--backend wlroots` keeps working as an alias so existing scripts don't break. The Cargo feature flag is still named `wlroots` because renaming it would force a breaking change on every downstream `Cargo.toml`; that's deferred to a future release.
+
+### Fixed
+- libei backend now works end-to-end on KDE Plasma 6. Two stacked bugs were blocking it. The first was on our side: the SeatAdded handler called `bind_capabilities` but never flushed the connection, so the EIS server never saw the bind and never vended any devices. mutter on GNOME vends devices even without an explicit flush, which is why this only surfaced on KDE. The second was upstream in KWin: binding Keyboard alongside Pointer or PointerAbsolute in one `ei_seat.bind` call makes KWin silently drop the keyboard device. Filed upstream at [bugs.kde.org#520464](https://bugs.kde.org/show_bug.cgi?id=520464) and worked around client-side by doing a two-stage bind (keyboard alone first, then the full set). Verified end-to-end on Plasma 6.6.5; closes the input side of [#1](https://github.com/cushycush/wdotool/issues/1). Window ops via KWin scripting (`search`, `getactivewindow`, `windowactivate`, `windowclose`, `getmouselocation`, `getwindowgeometry`) are still broken on Plasma 6 for an unrelated reason: `loadScriptFromText` was removed from `org.kde.kwin.Scripting`. Tracked at [#45](https://github.com/cushycush/wdotool/issues/45) for a follow-up release.
 
 ## [0.5.1] — 2026-05-08
 
