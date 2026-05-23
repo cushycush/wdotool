@@ -8,6 +8,14 @@
 //! renaming, or narrowing types requires a `schema_version` bump and
 //! a separate `capabilities/v2.json` schema file.
 //!
+//! The three-way drift gate runs in CI: the integration test
+//! `wdotool/tests/cli_introspection.rs::capabilities_output_matches_committed_fixture`
+//! freezes the mock-backend output to a committed fixture at
+//! `packaging/npm/tests/fixtures/capabilities-mock.json`; the npm
+//! suite validates that same fixture against `schema.json` with ajv.
+//! Either side trips if Rust serialization, the schema, or the TS
+//! types drift apart.
+//!
 //! Public entry points:
 //! - [`report`] returns a typed [`CapabilitiesReport`] for callers
 //!   that want struct access.

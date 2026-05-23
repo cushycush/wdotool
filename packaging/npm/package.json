@@ -49,8 +49,9 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "ajv": "^8.20.0",
+    "typescript": "^5.4.0"
   },
   "publishConfig": {
     "access": "public"

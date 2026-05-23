@@ -3,9 +3,15 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import Ajv2020 from "ajv/dist/2020.js";
 
 import { isCapabilitiesReport } from "../dist/index.js";
 import { schema } from "../dist/schema.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 // A minimal valid v1 report. Mirrors the shape wdotool-core emits.
 const validReport = {
@@ -100,4 +106,26 @@ test("schema's TypeUnicode enum matches the TS type", () => {
     [...enumFromSchema].sort(),
     ["ascii_only", "bmp_only", "full", "none"],
   );
+});
+
+// Cross-language drift gate. The fixture under tests/fixtures/ is the
+// canonical mock-backend output emitted by `wdotool capabilities --json`,
+// asserted by a matching test on the Rust side
+// (wdotool/tests/cli_introspection.rs). Validating it here against the
+// JSON Schema closes the loop: any change to Rust serialization that
+// drifts from the schema lights up either this test (the schema rejects
+// the shape) or the Rust test (the actual output stops matching the
+// fixture).
+test("mock-backend fixture validates against the JSON Schema", () => {
+  const ajv = new Ajv2020({ strict: true, allErrors: true });
+  const validate = ajv.compile(schema);
+  const fixturePath = resolve(here, "fixtures", "capabilities-mock.json");
+  const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
+  const ok = validate(fixture);
+  if (!ok) {
+    assert.fail(
+      "fixture failed schema validation:\n" +
+        JSON.stringify(validate.errors, null, 2),
+    );
+  }
 });

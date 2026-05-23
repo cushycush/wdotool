@@ -49,6 +49,15 @@ if (!validate(raw)) {
 
 The schema is JSON Schema draft 2020-12. It's also available as a raw JSON file at `@wdotool/capabilities/schema.json`.
 
+### Non-JS consumers (QML, Python, Go, etc.)
+
+The schema file ships standalone, so tools that can't (or don't want to) link the TypeScript types can grab the JSON document and feed it to whatever validator they prefer. Two practical paths:
+
+- `node_modules/@wdotool/capabilities/dist/schema.json` after `npm install` (e.g. Drift Settings reads it directly from a QML `XMLHttpRequest` against the file path).
+- A vendored copy of `docs/capabilities-schema.json` from the wdotool repo (the file in this package is synced from there byte-for-byte at build time, so the two are interchangeable).
+
+Either way, the contract is the JSON Schema document; the TypeScript types are a convenience layer for JS/TS consumers.
+
 ## What's in the report
 
 A `wdotool capabilities` call returns a single JSON object describing what the running backend can do. Top-level fields:
@@ -65,7 +74,16 @@ For the field-by-field reference, read the JSON Schema document directly. Every 
 
 ## Versioning
 
-This package's version tracks wdotool releases for the schema_version=1 contract. When wdotool ships a v2 schema, this package will release as v2 too, with a different module path so callers can import both side by side during a migration.
+This package's version tracks wdotool releases for the schema_version=1 contract. The npm package's major version mirrors the schema major, so v1.x of `@wdotool/capabilities` ships the v1 schema. When wdotool ships a v2 schema, this package will release as v2 too, with a different module path so callers can import both side by side during a migration.
+
+What does and doesn't bump `schema_version`:
+
+- Adding a new optional field to an existing object: backward-compatible, no bump. Consumers must ignore unknown fields, which is the explicit rule baked into the schema's top-level description.
+- Adding a new value to an open enum (e.g. a new backend name in `backend.selected`, a new compositor hint in `platform.compositor_hints`): backward-compatible, no bump.
+- Adding a new entry to a backend's `window.match_by` array: backward-compatible, no bump.
+- Removing a field, renaming a field, narrowing a type, or removing a value from a closed enum (e.g. `input.type_unicode`, `backend.kind`, `input.modifiers`, `window.match_by` element values, `extras.record.source`): not backward-compatible. Bumps `schema_version` and ships `capabilities/v2.json` alongside `v1.json`, plus a new major release of this package.
+
+CI gates the contract three ways: the Rust source in `wdotool-core/src/capabilities.rs` serializes the report, an integration test asserts the mock-backend output matches a committed fixture, and the npm test suite validates that same fixture against the schema document with ajv. The schema, the Rust types, and the TypeScript types all have to agree or one of those tests fails.
 
 ## License
 

@@ -44,6 +44,72 @@ async fn capabilities_reflects_mock_backend_name() {
     assert_eq!(value["backend"]["selected"], serde_json::json!("mock"));
 }
 
+// Cross-language drift gate (Rust side). The fixture under
+// packaging/npm/tests/fixtures/ is the canonical mock-backend output.
+// The npm test suite validates that same file against the JSON Schema
+// using ajv. Together the two checks prove the Rust serialization, the
+// schema document, and the TS types all agree on the wire shape.
+//
+// `wdotool_version` is a release-bump moving target, so the fixture
+// stores a placeholder string the assertion substitutes before
+// comparing. Every other field is compared structurally.
+#[tokio::test]
+async fn capabilities_output_matches_committed_fixture() {
+    let r = common::run(&["capabilities"]).await;
+    assert!(r.exit.is_success(), "stderr: {}", r.stderr);
+    let actual: serde_json::Value =
+        serde_json::from_str(&r.stdout).expect("capabilities stdout must be valid JSON");
+
+    // Path relative to this crate's manifest (wdotool/Cargo.toml).
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("packaging")
+        .join("npm")
+        .join("tests")
+        .join("fixtures")
+        .join("capabilities-mock.json");
+    let fixture_text = std::fs::read_to_string(&fixture_path)
+        .unwrap_or_else(|e| panic!("couldn't read fixture at {}: {e}", fixture_path.display()));
+    let mut expected: serde_json::Value =
+        serde_json::from_str(&fixture_text).expect("fixture must be valid JSON");
+
+    // Substitute the version placeholder with whatever the current
+    // build emits so a release bump doesn't churn the fixture.
+    let placeholder = "@@WDOTOOL_VERSION@@";
+    let actual_version = actual["wdotool_version"]
+        .as_str()
+        .expect("wdotool_version must be a string")
+        .to_string();
+    assert!(
+        !actual_version.is_empty(),
+        "wdotool_version emitted as an empty string"
+    );
+    assert_eq!(
+        expected["wdotool_version"],
+        serde_json::json!(placeholder),
+        "fixture must keep the version placeholder so release bumps don't drift it"
+    );
+    expected["wdotool_version"] = serde_json::json!(actual_version.clone());
+
+    // Normalize both sides through to_string + parse so the comparison
+    // is by structural shape, not by serde_json's internal key order.
+    let actual_canonical: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&actual).unwrap()).unwrap();
+    let expected_canonical: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&expected).unwrap()).unwrap();
+    if actual_canonical != expected_canonical {
+        // Pretty-printed diff blob on failure so the maintainer can
+        // see exactly what drifted.
+        let actual_pretty = serde_json::to_string_pretty(&actual).unwrap();
+        let expected_pretty = serde_json::to_string_pretty(&expected).unwrap();
+        panic!(
+            "mock capabilities output drifted from committed fixture\n\
+             expected (after version substitution):\n{expected_pretty}\n\n\
+             actual:\n{actual_pretty}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn info_prints_human_readable_capabilities() {
     let r = common::run(&["info"]).await;

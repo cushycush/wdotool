@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "wdotool_version": "@@WDOTOOL_VERSION@@",
+  "backend": {
+    "selected": "mock",
+    "kind": "direct",
+    "delegated_to": null,
+    "fallback_chain": ["libei", "wlr-protocols", "uinput"]
+  },
+  "input": {
+    "key": true,
+    "type_text": true,
+    "type_unicode": "none",
+    "mouse_move_absolute": true,
+    "mouse_move_relative": true,
+    "mouse_button": true,
+    "scroll": true,
+    "modifiers": "send-only"
+  },
+  "window": {
+    "list": true,
+    "active": true,
+    "activate": true,
+    "close": true,
+    "match_by": ["title", "app_id", "pid"]
+  },
+  "extras": {
+    "diag": true,
+    "outputs": true,
+    "record": { "supported": true, "source": null },
+    "json_output": true,
+    "pointer_position": true,
+    "window_geometry": true
+  },
+  "platform": {
+    "desktop": null,
+    "session_type": null,
+    "compositor_hints": []
+  }
+}
