@@ -184,7 +184,15 @@ pub enum Command {
     /// This is the machine-readable cousin of `info`. The schema is
     /// documented at `docs/capabilities-schema.json` and is the
     /// contract that wflows.com and other downstream tools consume.
-    Capabilities,
+    Capabilities {
+        /// Print just one action's descriptor as JSON, instead of the
+        /// full report. Useful for trust-prompt UIs that already cache
+        /// the full report and want a quick lookup. The name must be
+        /// one of the CLI subcommand names (e.g. `type`, `mousemove`,
+        /// `windowclose`). Exits with status 1 if the name is unknown.
+        #[arg(long)]
+        action: Option<String>,
+    },
 
     /// Print an environment + backend availability report. Use this
     /// when a wdotool command isn't behaving the way you expect; the

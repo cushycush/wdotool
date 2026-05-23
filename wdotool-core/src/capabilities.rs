@@ -23,6 +23,8 @@
 //!   matching the eng plan's `Capabilities::to_schema_v1() -> Value`
 //!   contract. wflows.com and other JSON consumers go through this.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::backend::Backend;
@@ -41,6 +43,7 @@ pub struct CapabilitiesReport {
     pub window: WindowCaps,
     pub extras: Extras,
     pub platform: PlatformInfo,
+    pub actions: BTreeMap<String, ActionDescriptor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +146,43 @@ pub struct PlatformInfo {
     pub compositor_hints: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActionDescriptor {
+    pub summary: String,
+    pub category: ActionCategory,
+    pub side_effects: Vec<ActionSideEffect>,
+    pub requires: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionCategory {
+    Input,
+    Window,
+    Extras,
+    Introspection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionSideEffect {
+    SynthesizeKey,
+    SynthesizePointerMotion,
+    SynthesizePointerButton,
+    SynthesizeScroll,
+    ActivateWindow,
+    CloseWindow,
+    ListWindows,
+    ReadWindow,
+    ReadPointerPosition,
+    ReadOutputs,
+    CaptureInput,
+    ReplayInput,
+    HoldDevices,
+    Diagnostic,
+    Introspection,
+}
+
 /// Build the typed report for the current environment + selected backend.
 pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
     let caps: Capabilities = backend.capabilities();
@@ -151,6 +191,7 @@ pub fn report(env: &Environment, backend: &dyn Backend) -> CapabilitiesReport {
     CapabilitiesReport {
         schema_version: SCHEMA_VERSION,
         wdotool_version: env!("CARGO_PKG_VERSION").to_string(),
+        actions: action_descriptors(),
         backend: BackendInfo {
             selected: backend_name.clone(),
             // v0.2.0 only ships direct-mode backends. Daemon mode is
@@ -259,6 +300,221 @@ fn backend_kind_label(kind: BackendKind) -> &'static str {
     }
 }
 
+/// Static descriptor table powering `wdotool capabilities --action <name>`
+/// and wflow's first-run trust prompt. The set is backend-independent:
+/// each descriptor lists side effects (what the action does) and a
+/// `requires` path list (capability bits that must be true on the
+/// selected backend). Consumers cross-reference `requires` against the
+/// rest of the report to know whether the action will succeed.
+pub fn action_descriptors() -> BTreeMap<String, ActionDescriptor> {
+    use ActionCategory as C;
+    use ActionSideEffect as S;
+
+    let mut m = BTreeMap::new();
+    let mut add = |name: &str,
+                   summary: &str,
+                   category: ActionCategory,
+                   side_effects: Vec<ActionSideEffect>,
+                   requires: &[&str]| {
+        m.insert(
+            name.to_string(),
+            ActionDescriptor {
+                summary: summary.to_string(),
+                category,
+                side_effects,
+                requires: requires.iter().map(|s| (*s).to_string()).collect(),
+            },
+        );
+    };
+
+    add(
+        "key",
+        "Press and release a key chain.",
+        C::Input,
+        vec![S::SynthesizeKey],
+        &["input.key"],
+    );
+    add(
+        "keydown",
+        "Press a key chain without releasing.",
+        C::Input,
+        vec![S::SynthesizeKey],
+        &["input.key"],
+    );
+    add(
+        "keyup",
+        "Release a previously pressed key chain.",
+        C::Input,
+        vec![S::SynthesizeKey],
+        &["input.key"],
+    );
+    add(
+        "type",
+        "Type a string as if from the keyboard.",
+        C::Input,
+        vec![S::SynthesizeKey],
+        &["input.type_text"],
+    );
+    add(
+        "mousemove",
+        "Move the pointer to an absolute or relative position.",
+        C::Input,
+        vec![S::SynthesizePointerMotion],
+        &["input.mouse_move_absolute"],
+    );
+    add(
+        "click",
+        "Press and release a mouse button.",
+        C::Input,
+        vec![S::SynthesizePointerButton],
+        &["input.mouse_button"],
+    );
+    add(
+        "mousedown",
+        "Press a mouse button without releasing.",
+        C::Input,
+        vec![S::SynthesizePointerButton],
+        &["input.mouse_button"],
+    );
+    add(
+        "mouseup",
+        "Release a previously pressed mouse button.",
+        C::Input,
+        vec![S::SynthesizePointerButton],
+        &["input.mouse_button"],
+    );
+    add(
+        "scroll",
+        "Send scroll events.",
+        C::Input,
+        vec![S::SynthesizeScroll],
+        &["input.scroll"],
+    );
+
+    add(
+        "search",
+        "List windows matching a filter.",
+        C::Window,
+        vec![S::ListWindows],
+        &["window.list"],
+    );
+    add(
+        "getactivewindow",
+        "Read the focused window's id.",
+        C::Window,
+        vec![S::ReadWindow],
+        &["window.active"],
+    );
+    add(
+        "getwindowname",
+        "Read a window's title.",
+        C::Window,
+        vec![S::ReadWindow],
+        &["window.list"],
+    );
+    add(
+        "getwindowpid",
+        "Read a window's owning process id.",
+        C::Window,
+        vec![S::ReadWindow],
+        &["window.list"],
+    );
+    add(
+        "getwindowclassname",
+        "Read a window's app_id (Wayland WM_CLASS).",
+        C::Window,
+        vec![S::ReadWindow],
+        &["window.list"],
+    );
+    add(
+        "getwindowgeometry",
+        "Read a window's frame position and size.",
+        C::Window,
+        vec![S::ReadWindow],
+        &["extras.window_geometry"],
+    );
+    add(
+        "windowactivate",
+        "Raise and focus a window.",
+        C::Window,
+        vec![S::ActivateWindow],
+        &["window.activate"],
+    );
+    add(
+        "windowclose",
+        "Close a window.",
+        C::Window,
+        vec![S::CloseWindow],
+        &["window.close"],
+    );
+
+    add(
+        "getmouselocation",
+        "Read the current pointer position.",
+        C::Extras,
+        vec![S::ReadPointerPosition],
+        &["extras.pointer_position"],
+    );
+    add(
+        "outputs",
+        "List the compositor's outputs (monitors).",
+        C::Extras,
+        vec![S::ReadOutputs],
+        &["extras.outputs"],
+    );
+    add(
+        "record",
+        "Capture user input until stopped and write the events as JSON.",
+        C::Extras,
+        vec![S::CaptureInput],
+        &["extras.record.supported"],
+    );
+    add(
+        "replay",
+        "Replay a previously captured input trace through the active backend.",
+        C::Extras,
+        vec![
+            S::ReplayInput,
+            S::SynthesizeKey,
+            S::SynthesizePointerMotion,
+            S::SynthesizePointerButton,
+            S::SynthesizeScroll,
+        ],
+        &["extras.record.supported"],
+    );
+    add(
+        "prime",
+        "Hold the wlr-protocols virtual keyboard and pointer alive for repeated invocations.",
+        C::Extras,
+        vec![S::HoldDevices],
+        &[],
+    );
+
+    add(
+        "info",
+        "Print a human-readable environment and capabilities summary.",
+        C::Introspection,
+        vec![S::Introspection],
+        &[],
+    );
+    add(
+        "capabilities",
+        "Print the structured capabilities report as JSON.",
+        C::Introspection,
+        vec![S::Introspection],
+        &["extras.json_output"],
+    );
+    add(
+        "diag",
+        "Print an environment and backend availability diagnostic report.",
+        C::Introspection,
+        vec![S::Diagnostic],
+        &["extras.diag"],
+    );
+
+    m
+}
+
 /// Per-backend Unicode-typing capability. Hardcoded because the
 /// `Capabilities` struct does not carry this info. Real-world testing
 /// on KDE / GNOME may refine these mappings; that refinement bumps
@@ -363,6 +619,9 @@ mod tests {
             vec![MatchBy::Title, MatchBy::AppId, MatchBy::Pid]
         );
         assert!(r.extras.diag);
+        // Actions descriptor table ships in every report (backend-independent).
+        assert!(r.actions.contains_key("type"));
+        assert!(r.actions.contains_key("windowclose"));
         // FakeBackend sets list_outputs=true, so the report flips
         // extras.outputs to true. A real libei backend would emit
         // false here (libei has device regions but no name mapping).
@@ -416,6 +675,89 @@ mod tests {
         );
         // record.source is null in v0.2.0.
         assert!(value["extras"]["record"]["source"].is_null());
+    }
+
+    #[test]
+    fn action_descriptors_match_cli_subcommands() {
+        // Keep this list in lockstep with `Command` in wdotool/src/cli.rs.
+        // If a new subcommand lands, add a descriptor + this entry; if a
+        // descriptor goes orphan, drop it from both sides.
+        let cli_subcommands = [
+            "key",
+            "keydown",
+            "keyup",
+            "type",
+            "mousemove",
+            "click",
+            "mousedown",
+            "mouseup",
+            "scroll",
+            "search",
+            "getactivewindow",
+            "getmouselocation",
+            "getwindowname",
+            "getwindowpid",
+            "getwindowclassname",
+            "getwindowgeometry",
+            "windowactivate",
+            "windowclose",
+            "outputs",
+            "info",
+            "capabilities",
+            "diag",
+            "record",
+            "replay",
+            "prime",
+        ];
+        let descriptors = action_descriptors();
+        for name in cli_subcommands {
+            assert!(
+                descriptors.contains_key(name),
+                "no action descriptor for CLI subcommand `{name}`"
+            );
+        }
+        // Catches the reverse: an orphan descriptor with no matching
+        // subcommand. Updating `cli_subcommands` above is part of adding
+        // a real subcommand.
+        for name in descriptors.keys() {
+            assert!(
+                cli_subcommands.contains(&name.as_str()),
+                "descriptor `{name}` has no matching CLI subcommand"
+            );
+        }
+    }
+
+    #[test]
+    fn action_descriptor_requires_paths_resolve_in_the_report() {
+        // Each descriptor's `requires` entry must be a dotted path that
+        // walks the live report shape. Catches typos like `input.kye`.
+        let env = fake_env();
+        let backend = FakeBackend {
+            name: "wlr-protocols",
+        };
+        let value = report_json(&env, &backend);
+        for (name, descriptor) in action_descriptors() {
+            for path in &descriptor.requires {
+                let mut node = &value;
+                for segment in path.split('.') {
+                    node = node.get(segment).unwrap_or_else(|| {
+                        panic!("descriptor `{name}` requires `{path}` but `{segment}` is missing")
+                    });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn capabilities_descriptor_lookup_is_stable() {
+        let descriptors = action_descriptors();
+        let type_action = descriptors.get("type").expect("type descriptor");
+        assert_eq!(type_action.category, ActionCategory::Input);
+        assert_eq!(
+            type_action.side_effects,
+            vec![ActionSideEffect::SynthesizeKey]
+        );
+        assert_eq!(type_action.requires, vec!["input.type_text".to_string()]);
     }
 
     #[test]

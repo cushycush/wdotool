@@ -111,6 +111,31 @@ async fn capabilities_output_matches_committed_fixture() {
 }
 
 #[tokio::test]
+async fn capabilities_action_lookup_emits_just_one_descriptor() {
+    let r = common::run(&["capabilities", "--action", "type"]).await;
+    assert!(r.exit.is_success(), "stderr: {}", r.stderr);
+    let value: serde_json::Value =
+        serde_json::from_str(&r.stdout).expect("descriptor stdout must be valid JSON");
+    // The full report has top-level keys like `schema_version`; a
+    // descriptor only carries summary/category/side_effects/requires.
+    let obj = value.as_object().expect("descriptor must be a JSON object");
+    assert!(obj.contains_key("summary"));
+    assert!(obj.contains_key("category"));
+    assert!(obj.contains_key("side_effects"));
+    assert!(obj.contains_key("requires"));
+    assert!(!obj.contains_key("schema_version"));
+    assert_eq!(obj["category"], serde_json::json!("input"));
+}
+
+#[tokio::test]
+async fn capabilities_action_lookup_exits_1_on_unknown_name() {
+    let r = common::run(&["capabilities", "--action", "definitely-not-a-real-action"]).await;
+    assert_eq!(r.exit.0, 1);
+    assert_eq!(r.stdout, "");
+    assert!(r.stderr.contains("unknown action"), "stderr: {}", r.stderr);
+}
+
+#[tokio::test]
 async fn info_prints_human_readable_capabilities() {
     let r = common::run(&["info"]).await;
     assert!(r.exit.is_success());

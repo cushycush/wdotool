@@ -53,6 +53,14 @@ const validReport = {
     session_type: "wayland",
     compositor_hints: ["hyprland"],
   },
+  actions: {
+    type: {
+      summary: "Type a string as if from the keyboard.",
+      category: "input",
+      side_effects: ["synthesize_key"],
+      requires: ["input.type_text"],
+    },
+  },
 };
 
 test("isCapabilitiesReport accepts a minimal valid v1 report", () => {
@@ -106,6 +114,47 @@ test("schema's TypeUnicode enum matches the TS type", () => {
     [...enumFromSchema].sort(),
     ["ascii_only", "bmp_only", "full", "none"],
   );
+});
+
+test("schema's ActionCategory enum matches the TS type", () => {
+  const enumFromSchema =
+    schema.properties.actions.additionalProperties.properties.category.enum;
+  assert.deepEqual(
+    [...enumFromSchema].sort(),
+    ["extras", "input", "introspection", "window"],
+  );
+});
+
+test("schema's ActionSideEffect enum matches the TS type", () => {
+  const enumFromSchema =
+    schema.properties.actions.additionalProperties.properties.side_effects.items
+      .enum;
+  // Sort both sides so this is order-insensitive but value-strict.
+  assert.deepEqual(
+    [...enumFromSchema].sort(),
+    [
+      "activate_window",
+      "capture_input",
+      "close_window",
+      "diagnostic",
+      "hold_devices",
+      "introspection",
+      "list_windows",
+      "read_outputs",
+      "read_pointer_position",
+      "read_window",
+      "replay_input",
+      "synthesize_key",
+      "synthesize_pointer_button",
+      "synthesize_pointer_motion",
+      "synthesize_scroll",
+    ],
+  );
+});
+
+test("isCapabilitiesReport rejects a report without an actions table", () => {
+  const { actions, ...without } = validReport;
+  assert.equal(isCapabilitiesReport(without), false);
 });
 
 // Cross-language drift gate. The fixture under tests/fixtures/ is the

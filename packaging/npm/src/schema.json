@@ -11,7 +11,8 @@
     "input",
     "window",
     "extras",
-    "platform"
+    "platform",
+    "actions"
   ],
   "properties": {
     "schema_version": {
@@ -152,6 +153,55 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Detected compositor markers from environment variables. Open enum; v0.2.0 emits subsets of [\"sway\", \"hyprland\", \"wayfire\"]. Future hints may be added."
+        }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "description": "Per-action descriptors for trust-prompt UIs and capability discovery. Keys are CLI subcommand names (one-to-one with `wdotool <subcommand>`). The descriptor set is backend-independent: it tells callers what each action does and which capability bits must be true on the selected backend for the action to succeed. Adding entries is backward-compat; removing or renaming an action name, or changing the locked side-effect / requires enums, bumps schema_version. Powers `wdotool capabilities --action <name>` and wflow's first-run trust prompt.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["summary", "category", "side_effects", "requires"],
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "One-line human description suitable for a trust-prompt UI (\"Types text as if from the keyboard.\")."
+          },
+          "category": {
+            "type": "string",
+            "enum": ["input", "window", "extras", "introspection"],
+            "description": "Coarse grouping. `input` synthesizes keyboard or pointer events. `window` reads or operates on toplevels. `extras` is recorder + replay + prime + outputs. `introspection` is read-only diagnostic surfaces (info, capabilities, diag)."
+          },
+          "side_effects": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "synthesize_key",
+                "synthesize_pointer_motion",
+                "synthesize_pointer_button",
+                "synthesize_scroll",
+                "activate_window",
+                "close_window",
+                "list_windows",
+                "read_window",
+                "read_pointer_position",
+                "read_outputs",
+                "capture_input",
+                "replay_input",
+                "hold_devices",
+                "diagnostic",
+                "introspection"
+              ]
+            },
+            "description": "Closed enum of what the action does at runtime. Trust prompts can render these directly (`synthesize_key` -> \"send keystrokes\") or roll them up into a coarser permission grant. Adding new values is forward-compat per JSON Schema 2020-12; removing or renaming bumps schema_version."
+          },
+          "requires": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Dotted paths into the capabilities report that must be truthy for this action to succeed on the selected backend, e.g. `input.key`, `window.close`, `extras.record.supported`. Open string list; the convention is `<top-level>.<field>` matching the report shape. Consumers walk the report at each path and treat missing-or-falsy as \"unsupported on this backend.\""
+          }
         }
       }
     }
