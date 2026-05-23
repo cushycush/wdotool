@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `packaging/systemd/wdotool-prime.service`, a systemd user unit that keeps the wlr-protocols `virtual_keyboard` and `virtual_pointer` devices alive for the lifetime of the graphical session. Wired into `graphical-session.target` (`PartOf` + `After` + `WantedBy`), so it starts when the session starts and stops when it ends. Long-lived devices cut per-call latency for scripts that issue many `wdotool` invocations in a row, and they keep the seat's capability up across invocations for sibling clients like the Layer 3 round-trip harness. Installed at `/usr/lib/systemd/user/wdotool-prime.service` by the `wdotool` and `wdotool-git` AUR packages, the .deb, and the .rpm; users opt in with `systemctl --user enable --now wdotool-prime.service`. Distro-bundling notes are in `packaging/systemd/README.md`. The unit fails on non-wlr compositors (KDE, GNOME) since `wdotool prime` forces the wlr-protocols backend; only enable it if you actually run a wlr compositor.
+
 ### Changed
 - The `wdotool-core` Cargo feature for the wlr-protocols backend is now spelled `wlr-protocols` instead of `wlroots`, matching the runtime backend name (which was renamed in v0.5.2). Splitting this across two releases was deliberate: Cargo features have no aliasing mechanism, so every downstream `Cargo.toml` that lists the feature has to bump on the same release the rename lands. If you depend on `wdotool-core` directly with the wlroots feature enabled, rename `features = [..., "wlroots", ...]` to `features = [..., "wlr-protocols", ...]` at the same time you bump to `wdotool-core = "0.6"`. The CLI flag `--backend wlroots` is unaffected and still accepted as a backend alias. This is the breaking-change side of v0.6.0; everything else stays source-compatible with 0.5.x.
 
