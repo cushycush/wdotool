@@ -36,5 +36,163 @@
     "desktop": null,
     "session_type": null,
     "compositor_hints": []
+  },
+  "actions": {
+    "capabilities": {
+      "summary": "Print the structured capabilities report as JSON.",
+      "category": "introspection",
+      "side_effects": ["introspection"],
+      "requires": ["extras.json_output"]
+    },
+    "click": {
+      "summary": "Press and release a mouse button.",
+      "category": "input",
+      "side_effects": ["synthesize_pointer_button"],
+      "requires": ["input.mouse_button"]
+    },
+    "diag": {
+      "summary": "Print an environment and backend availability diagnostic report.",
+      "category": "introspection",
+      "side_effects": ["diagnostic"],
+      "requires": ["extras.diag"]
+    },
+    "getactivewindow": {
+      "summary": "Read the focused window's id.",
+      "category": "window",
+      "side_effects": ["read_window"],
+      "requires": ["window.active"]
+    },
+    "getmouselocation": {
+      "summary": "Read the current pointer position.",
+      "category": "extras",
+      "side_effects": ["read_pointer_position"],
+      "requires": ["extras.pointer_position"]
+    },
+    "getwindowclassname": {
+      "summary": "Read a window's app_id (Wayland WM_CLASS).",
+      "category": "window",
+      "side_effects": ["read_window"],
+      "requires": ["window.list"]
+    },
+    "getwindowgeometry": {
+      "summary": "Read a window's frame position and size.",
+      "category": "window",
+      "side_effects": ["read_window"],
+      "requires": ["extras.window_geometry"]
+    },
+    "getwindowname": {
+      "summary": "Read a window's title.",
+      "category": "window",
+      "side_effects": ["read_window"],
+      "requires": ["window.list"]
+    },
+    "getwindowpid": {
+      "summary": "Read a window's owning process id.",
+      "category": "window",
+      "side_effects": ["read_window"],
+      "requires": ["window.list"]
+    },
+    "info": {
+      "summary": "Print a human-readable environment and capabilities summary.",
+      "category": "introspection",
+      "side_effects": ["introspection"],
+      "requires": []
+    },
+    "key": {
+      "summary": "Press and release a key chain.",
+      "category": "input",
+      "side_effects": ["synthesize_key"],
+      "requires": ["input.key"]
+    },
+    "keydown": {
+      "summary": "Press a key chain without releasing.",
+      "category": "input",
+      "side_effects": ["synthesize_key"],
+      "requires": ["input.key"]
+    },
+    "keyup": {
+      "summary": "Release a previously pressed key chain.",
+      "category": "input",
+      "side_effects": ["synthesize_key"],
+      "requires": ["input.key"]
+    },
+    "mousedown": {
+      "summary": "Press a mouse button without releasing.",
+      "category": "input",
+      "side_effects": ["synthesize_pointer_button"],
+      "requires": ["input.mouse_button"]
+    },
+    "mousemove": {
+      "summary": "Move the pointer to an absolute or relative position.",
+      "category": "input",
+      "side_effects": ["synthesize_pointer_motion"],
+      "requires": ["input.mouse_move_absolute"]
+    },
+    "mouseup": {
+      "summary": "Release a previously pressed mouse button.",
+      "category": "input",
+      "side_effects": ["synthesize_pointer_button"],
+      "requires": ["input.mouse_button"]
+    },
+    "outputs": {
+      "summary": "List the compositor's outputs (monitors).",
+      "category": "extras",
+      "side_effects": ["read_outputs"],
+      "requires": ["extras.outputs"]
+    },
+    "prime": {
+      "summary": "Hold the wlr-protocols virtual keyboard and pointer alive for repeated invocations.",
+      "category": "extras",
+      "side_effects": ["hold_devices"],
+      "requires": []
+    },
+    "record": {
+      "summary": "Capture user input until stopped and write the events as JSON.",
+      "category": "extras",
+      "side_effects": ["capture_input"],
+      "requires": ["extras.record.supported"]
+    },
+    "replay": {
+      "summary": "Replay a previously captured input trace through the active backend.",
+      "category": "extras",
+      "side_effects": [
+        "replay_input",
+        "synthesize_key",
+        "synthesize_pointer_motion",
+        "synthesize_pointer_button",
+        "synthesize_scroll"
+      ],
+      "requires": ["extras.record.supported"]
+    },
+    "scroll": {
+      "summary": "Send scroll events.",
+      "category": "input",
+      "side_effects": ["synthesize_scroll"],
+      "requires": ["input.scroll"]
+    },
+    "search": {
+      "summary": "List windows matching a filter.",
+      "category": "window",
+      "side_effects": ["list_windows"],
+      "requires": ["window.list"]
+    },
+    "type": {
+      "summary": "Type a string as if from the keyboard.",
+      "category": "input",
+      "side_effects": ["synthesize_key"],
+      "requires": ["input.type_text"]
+    },
+    "windowactivate": {
+      "summary": "Raise and focus a window.",
+      "category": "window",
+      "side_effects": ["activate_window"],
+      "requires": ["window.activate"]
+    },
+    "windowclose": {
+      "summary": "Close a window.",
+      "category": "window",
+      "side_effects": ["close_window"],
+      "requires": ["window.close"]
+    }
   }
 }

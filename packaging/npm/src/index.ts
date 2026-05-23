@@ -20,6 +20,10 @@
 //   if (!validate(raw)) console.error(validate.errors);
 
 export type {
+  ActionCategory,
+  ActionDescriptor,
+  ActionSideEffect,
+  ActionsTable,
   BackendInfo,
   BackendKind,
   CapabilitiesReport,
@@ -59,6 +63,9 @@ export function isCapabilitiesReport(
     typeof v["extras"] === "object" &&
     v["extras"] !== null &&
     typeof v["platform"] === "object" &&
-    v["platform"] !== null
+    v["platform"] !== null &&
+    typeof v["actions"] === "object" &&
+    v["actions"] !== null &&
+    !Array.isArray(v["actions"])
   );
 }

@@ -68,11 +68,24 @@ impl ExitCode {
 /// `process::exit` on non-zero, tests assert directly.
 pub async fn dispatch(ctx: &mut DispatchCtx<'_>, cmd: Command) -> Result<ExitCode> {
     match cmd {
-        Command::Capabilities => {
-            let value = wdotool_core::capabilities::report_json(ctx.env, ctx.backend);
-            let pretty = serde_json::to_string_pretty(&value)
-                .map_err(|e| WdoError::InvalidArg(format!("capabilities serialization: {e}")))?;
-            writeln!(ctx.stdout, "{pretty}").map_err(io_err)?;
+        Command::Capabilities { action } => {
+            if let Some(name) = action {
+                let descriptors = wdotool_core::capabilities::action_descriptors();
+                let Some(descriptor) = descriptors.get(&name) else {
+                    writeln!(ctx.stderr, "unknown action: {name}").map_err(io_err)?;
+                    return Ok(ExitCode(1));
+                };
+                let pretty = serde_json::to_string_pretty(descriptor).map_err(|e| {
+                    WdoError::InvalidArg(format!("action descriptor serialization: {e}"))
+                })?;
+                writeln!(ctx.stdout, "{pretty}").map_err(io_err)?;
+            } else {
+                let value = wdotool_core::capabilities::report_json(ctx.env, ctx.backend);
+                let pretty = serde_json::to_string_pretty(&value).map_err(|e| {
+                    WdoError::InvalidArg(format!("capabilities serialization: {e}"))
+                })?;
+                writeln!(ctx.stdout, "{pretty}").map_err(io_err)?;
+            }
         }
         Command::Info => {
             let caps = ctx.backend.capabilities();
