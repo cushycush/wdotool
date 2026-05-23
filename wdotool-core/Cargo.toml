@@ -45,6 +45,13 @@ recorder = [
     "dep:reis",
     "dep:tokio-stream",
 ]
+# Compositor events: subscribe to Drift's IPC socket (Hyprland-compat
+# socket2 protocol) and surface window / workspace / monitor lifecycle
+# events as a `Stream<Event>`. Behind its own feature because Drift's
+# IPC is the only source today; uinput and wlr-protocols sessions have
+# no equivalent event channel to subscribe to. wflow's trigger-card
+# UI ("when Firefox opens, run workflow X") is the primary consumer.
+events = ["dep:futures-util", "dep:tokio-stream", "tokio/io-util", "tokio/net"]
 # Compiles in `backend::mock::MockBackend`, an in-memory Backend that
 # records every call. Used by `wdotool`'s integration tests and exposed
 # so downstream consumers of the Backend trait (wflows.com) don't have

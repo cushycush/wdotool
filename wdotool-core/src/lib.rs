@@ -23,6 +23,8 @@
 pub mod backend;
 pub mod capabilities;
 pub mod error;
+#[cfg(feature = "events")]
+pub mod events;
 pub mod keysym;
 #[cfg(feature = "recorder")]
 pub mod recorder;
