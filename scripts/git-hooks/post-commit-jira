@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# wdotool post-commit hook: scan the latest commit message for `Refs: WDOTOOL-XX`
+# or `Closes: WDOTOOL-XX` trailers (also accepts WFLOW-XX and DRIFT-XX so a
+# cross-project integration commit can reference all three from one trailer
+# line), comment the commit onto each referenced ticket, and transition
+# `Closes:` tickets to Done.
+#
+# Install: scripts/git-hooks/install.sh
+#
+# Skipped silently when:
+#   - the commit message has no Refs/Closes trailer
+#   - WDOTOOL_NO_JIRA=1 is set in the environment
+#   - the seed.py CLI or its credentials are missing
+set -euo pipefail
+
+if [[ "${WDOTOOL_NO_JIRA:-0}" == "1" ]]; then
+  exit 0
+fi
+
+# Resolve symlinks so a hook installed at .git/hooks/post-commit
+# points at the script under scripts/git-hooks/, not back into .git.
+hook_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+seed="$hook_dir/../jira/seed.py"
+if [[ ! -x "$seed" && ! -f "$seed" ]]; then
+  exit 0
+fi
+
+if [[ ! -r "$HOME/.config/jira/env" && ! -r "$HOME/.config/drift/jira.env" ]]; then
+  exit 0
+fi
+
+msg="$(git log -1 --pretty=%B)"
+subject="$(git log -1 --pretty=%s)"
+sha_short="$(git log -1 --pretty=%h)"
+repo="$(basename "$(git rev-parse --show-toplevel)")"
+
+# WDOTOOL-NN here, WFLOW-NN and DRIFT-NN too (cross-project refs land on the
+# right ticket without needing extra trailer lines). Match anywhere in the
+# message; dedup by key.
+mapfile -t refs < <(printf '%s\n' "$msg" | grep -oE '(Refs|Ref|See):[[:space:]]*(WDOTOOL|WFLOW|DRIFT)-[0-9]+' | awk -F: '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2); print $2}' | sort -u)
+mapfile -t closes < <(printf '%s\n' "$msg" | grep -oE '(Closes|Close|Fixes|Fix):[[:space:]]*(WDOTOOL|WFLOW|DRIFT)-[0-9]+' | awk -F: '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2); print $2}' | sort -u)
+
+if [[ ${#refs[@]} -eq 0 && ${#closes[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+comment="${repo}@${sha_short}: ${subject}"
+
+for key in "${refs[@]}" "${closes[@]}"; do
+  python3 "$seed" comment "$key" "$comment" >/dev/null 2>&1 || true
+done
+
+for key in "${closes[@]}"; do
+  python3 "$seed" done "$key" --comment "Closed by ${repo}@${sha_short}" >/dev/null 2>&1 || true
+done
+
+exit 0

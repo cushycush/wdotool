@@ -1,2 +1,4 @@
 /target
 /.claude
+/ACTIVE.md
+scripts/jira/__pycache__/

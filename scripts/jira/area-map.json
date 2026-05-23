@@ -1,0 +1,242 @@
+[
+  {
+    "glob": "wdotool-core/src/backend/wlr_protocols.rs",
+    "key": "WDOTOOL-13",
+    "label": "wlr-protocols backend"
+  },
+  {
+    "glob": "wdotool-core/src/backend/libei.rs",
+    "key": "WDOTOOL-14",
+    "label": "libei backend"
+  },
+  {
+    "glob": "wdotool-core/src/backend/kde.rs",
+    "key": "WDOTOOL-15",
+    "label": "kde backend"
+  },
+  {
+    "glob": "wdotool-core/src/backend/gnome.rs",
+    "key": "WDOTOOL-16",
+    "label": "gnome backend"
+  },
+  {
+    "glob": "wdotool-core/src/backend/uinput.rs",
+    "key": "WDOTOOL-17",
+    "label": "uinput backend"
+  },
+  {
+    "glob": "wdotool-core/src/backend/mock.rs",
+    "key": "WDOTOOL-28",
+    "label": "mock backend & in-process tests"
+  },
+  {
+    "glob": "wdotool-core/src/backend/detector.rs",
+    "key": "WDOTOOL-9",
+    "label": "backend trait & detector"
+  },
+  {
+    "glob": "wdotool-core/src/backend/mod.rs",
+    "key": "WDOTOOL-9",
+    "label": "backend trait & detector"
+  },
+  {
+    "glob": "wdotool-core/src/capabilities.rs",
+    "key": "WDOTOOL-10",
+    "label": "capabilities reporting"
+  },
+  {
+    "glob": "wdotool-core/src/keysym.rs",
+    "key": "WDOTOOL-11",
+    "label": "keysym parser"
+  },
+  {
+    "glob": "wdotool-core/src/portal_token.rs",
+    "key": "WDOTOOL-12",
+    "label": "portal token cache"
+  },
+  {
+    "glob": "wdotool-core/src/types.rs",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (types)"
+  },
+  {
+    "glob": "wdotool-core/src/error.rs",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (error)"
+  },
+  {
+    "glob": "wdotool-core/src/lib.rs",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (lib root)"
+  },
+  {
+    "glob": "wdotool-core/src/recorder/portal.rs",
+    "key": "WDOTOOL-23",
+    "label": "portal recorder"
+  },
+  {
+    "glob": "wdotool-core/src/recorder/evdev.rs",
+    "key": "WDOTOOL-24",
+    "label": "evdev recorder"
+  },
+  {
+    "glob": "wdotool-core/src/recorder/**",
+    "key": "WDOTOOL-4",
+    "label": "Recorder epic (fallback)"
+  },
+  {
+    "glob": "wdotool-core/src/backend/**",
+    "key": "WDOTOOL-2",
+    "label": "Backends epic (fallback)"
+  },
+  {
+    "glob": "wdotool-core/**",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (fallback)"
+  },
+  {
+    "glob": "wdotool/src/diag.rs",
+    "key": "WDOTOOL-20",
+    "label": "diagnostic subcommands"
+  },
+  {
+    "glob": "wdotool/src/record.rs",
+    "key": "WDOTOOL-26",
+    "label": "recorder CLI commands"
+  },
+  {
+    "glob": "wdotool/src/replay.rs",
+    "key": "WDOTOOL-25",
+    "label": "replay path"
+  },
+  {
+    "glob": "wdotool/src/cli.rs",
+    "key": "WDOTOOL-3",
+    "label": "CLI epic (clap definitions)"
+  },
+  {
+    "glob": "wdotool/src/main.rs",
+    "key": "WDOTOOL-3",
+    "label": "CLI epic (entrypoint)"
+  },
+  {
+    "glob": "wdotool/src/lib.rs",
+    "key": "WDOTOOL-28",
+    "label": "dispatch surface for tests"
+  },
+  {
+    "glob": "wdotool/tests/cli_roundtrip*.rs",
+    "key": "WDOTOOL-27",
+    "label": "headless-sway integration harness"
+  },
+  {
+    "glob": "wdotool/tests/cli_*.rs",
+    "key": "WDOTOOL-28",
+    "label": "mock backend integration tests"
+  },
+  {
+    "glob": "wdotool/**",
+    "key": "WDOTOOL-3",
+    "label": "CLI epic (fallback)"
+  },
+  {
+    "glob": "wdotool-test-harness/**",
+    "key": "WDOTOOL-27",
+    "label": "headless-sway harness"
+  },
+  {
+    "glob": "packaging/aur/**",
+    "key": "WDOTOOL-32",
+    "label": "AUR"
+  },
+  {
+    "glob": "packaging/flatpak/**",
+    "key": "WDOTOOL-33",
+    "label": "Flathub"
+  },
+  {
+    "glob": "packaging/container/**",
+    "key": "WDOTOOL-34",
+    "label": "Containerfile"
+  },
+  {
+    "glob": "packaging/gnome-extension/**",
+    "key": "WDOTOOL-16",
+    "label": "gnome backend (Shell extension)"
+  },
+  {
+    "glob": "packaging/npm/**",
+    "key": "WDOTOOL-37",
+    "label": "@wdotool/capabilities npm package"
+  },
+  {
+    "glob": "packaging/**",
+    "key": "WDOTOOL-6",
+    "label": "Packaging epic (fallback)"
+  },
+  {
+    "glob": "docs/verification/kde-plasma-6.md",
+    "key": "WDOTOOL-29",
+    "label": "KDE Plasma 6 verification"
+  },
+  {
+    "glob": "docs/verification/**",
+    "key": "WDOTOOL-5",
+    "label": "Verification epic (fallback)"
+  },
+  {
+    "glob": "docs/capabilities-schema.json",
+    "key": "WDOTOOL-10",
+    "label": "capabilities schema"
+  },
+  {
+    "glob": "docs/xdotool-compat.md",
+    "key": "WDOTOOL-11",
+    "label": "xdotool argv compat table"
+  },
+  {
+    "glob": "docs/design/**",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (design docs)"
+  },
+  {
+    "glob": "docs/testing.md",
+    "key": "WDOTOOL-5",
+    "label": "Verification epic (testing doc)"
+  },
+  {
+    "glob": "docs/**",
+    "key": "WDOTOOL-5",
+    "label": "Verification epic (docs fallback)"
+  },
+  {
+    "glob": "scripts/jira/**",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (jira tooling)"
+  },
+  {
+    "glob": "scripts/git-hooks/**",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (git hooks)"
+  },
+  {
+    "glob": "flake.nix",
+    "key": "WDOTOOL-36",
+    "label": "Nix flake"
+  },
+  {
+    "glob": "CHANGELOG.md",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (changelog)"
+  },
+  {
+    "glob": "README.md",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (readme)"
+  },
+  {
+    "glob": "Cargo.toml",
+    "key": "WDOTOOL-1",
+    "label": "Engine epic (workspace manifest)"
+  }
+]
