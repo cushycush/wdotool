@@ -1,0 +1,17 @@
+[Unit]
+Description=Hold the wdotool wlr-protocols virtual devices alive for the session
+Documentation=https://github.com/cushycush/wdotool
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/wdotool prime
+Restart=on-failure
+RestartSec=5s
+# wdotool prime traps SIGINT and SIGTERM and exits cleanly, so the
+# default KillMode=control-group is fine. No KillSignal override
+# needed.
+
+[Install]
+WantedBy=graphical-session.target

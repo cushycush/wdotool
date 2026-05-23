@@ -76,6 +76,7 @@ assets = [
     ["../CHANGELOG.md", "usr/share/doc/wdotool/CHANGELOG.md", "644"],
     ["../LICENSE-MIT", "usr/share/doc/wdotool/LICENSE-MIT", "644"],
     ["../LICENSE-APACHE", "usr/share/doc/wdotool/LICENSE-APACHE", "644"],
+    ["../packaging/systemd/wdotool-prime.service", "usr/lib/systemd/user/wdotool-prime.service", "644"],
 ]
 
 # Fedora / openSUSE / Mageia / RHEL packaging metadata. Consumed by
@@ -89,6 +90,7 @@ assets = [
     { source = "../CHANGELOG.md", dest = "/usr/share/doc/wdotool/CHANGELOG.md", mode = "644", doc = true },
     { source = "../LICENSE-MIT", dest = "/usr/share/licenses/wdotool/LICENSE-MIT", mode = "644", doc = true },
     { source = "../LICENSE-APACHE", dest = "/usr/share/licenses/wdotool/LICENSE-APACHE", mode = "644", doc = true },
+    { source = "../packaging/systemd/wdotool-prime.service", dest = "/usr/lib/systemd/user/wdotool-prime.service", mode = "644" },
 ]
 [package.metadata.generate-rpm.requires]
 libxkbcommon = "*"
