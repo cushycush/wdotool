@@ -25,6 +25,7 @@ pub mod capabilities;
 pub mod error;
 #[cfg(feature = "events")]
 pub mod events;
+mod identity;
 pub mod keysym;
 #[cfg(feature = "recorder")]
 pub mod recorder;
@@ -36,6 +37,7 @@ pub(crate) mod portal_token;
 pub use backend::detector;
 pub use backend::{Backend, DynBackend};
 pub use error::{Result, WdoError};
+pub use identity::APP_ID;
 pub use types::{
     Capabilities, KeyDirection, MouseButton, OutputInfo, WindowGeometry, WindowId, WindowInfo,
 };

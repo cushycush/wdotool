@@ -122,7 +122,7 @@ async fn pump(
     move_threshold_px: i32,
 ) {
     let handshake = context
-        .handshake_tokio("wdotool-recorder", ei::handshake::ContextType::Receiver)
+        .handshake_tokio(crate::APP_ID, ei::handshake::ContextType::Receiver)
         .await;
     let (_connection, mut stream) = match handshake {
         Ok(v) => v,

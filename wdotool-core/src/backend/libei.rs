@@ -235,7 +235,7 @@ async fn dispatcher(
     ready_tx: oneshot::Sender<()>,
 ) {
     let (connection, mut stream) = match context
-        .handshake_tokio("wdotool", ei::handshake::ContextType::Sender)
+        .handshake_tokio(crate::APP_ID, ei::handshake::ContextType::Sender)
         .await
     {
         Ok(pair) => pair,
