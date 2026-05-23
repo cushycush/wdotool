@@ -163,7 +163,7 @@ rm ~/.local/state/wdotool/portal.token
 
 Binds `zwp_virtual_keyboard_v1`, `zwlr_virtual_pointer_v1`, and `zwlr_foreign_toplevel_management_v1` directly. Uploads a transient xkb keymap at `type` time (one keycode per unique character as a Level-0 Unicode keysym), which is how arbitrary Unicode works without a server-side keymap change. Tracks `wl_output` modes so `motion_absolute` coordinates are real pixels on the primary output. **Preferred on Sway, Hyprland, river, Wayfire.**
 
-The backend used to be called "wlroots" because the wlr-* protocol family lives in the wlr-protocols upstream. The name was misleading: the backend has no runtime dependency on the wlroots library, just on the protocols, which Sway, river, Wayfire, and Hyprland all implement independently. Renamed to `wlr-protocols` in v0.6.0; `--backend wlroots` is still accepted as an alias.
+The backend used to be called "wlroots" because the wlr-* protocol family lives in the wlr-protocols upstream. The name was misleading: the backend has no runtime dependency on the wlroots library, just on the protocols, which Sway, river, Wayfire, and Hyprland all implement independently. Backend renamed to `wlr-protocols` in v0.5.2; Cargo feature flag renamed to match in v0.6.0. `--backend wlroots` is still accepted as a CLI alias.
 
 **Requirements:**
 - A compositor that exposes the three wlr-* protocols above. Sway, Hyprland, river, and Wayfire all do by default.
@@ -228,13 +228,15 @@ The engine lives in a separate `wdotool-core` crate, so other Rust projects can 
 wdotool-core = "0.3"
 ```
 
-Each backend is gated behind a Cargo feature (`libei`, `wlroots`, `kde`, `gnome`, `uinput`). The `wlroots` feature flag still uses the old name (the runtime backend is now `wlr-protocols`, but renaming the Cargo feature too would force every downstream `Cargo.toml` to update at the same time, so that's deferred to its own release). Default-on enables all five. To skip a backend, opt out:
+Each backend is gated behind a Cargo feature (`libei`, `wlr-protocols`, `kde`, `gnome`, `uinput`). Default-on enables all five. To skip a backend, opt out:
 
 ```toml
 # Drop uinput's input-linux + libc deps; useful in sandboxed builds (Flatpak)
 # where /dev/uinput is not reachable.
-wdotool-core = { version = "0.3", default-features = false, features = ["libei", "wlroots", "kde", "gnome"] }
+wdotool-core = { version = "0.6", default-features = false, features = ["libei", "wlr-protocols", "kde", "gnome"] }
 ```
+
+The feature was called `wlroots` in 0.5.x and earlier; renamed to `wlr-protocols` in 0.6.0 to match the runtime backend name. If you bump `wdotool-core` from 0.5 to 0.6, rename the feature in your `Cargo.toml` at the same time.
 
 Public API (intentionally small):
 

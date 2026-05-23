@@ -12,7 +12,7 @@ keywords = ["wayland", "xdotool", "automation", "input", "libei"]
 categories = ["os::linux-apis"]
 
 [features]
-default = ["libei", "wlroots", "kde", "gnome", "uinput"]
+default = ["libei", "wlr-protocols", "kde", "gnome", "uinput"]
 libei = [
     "dep:ashpd",
     "dep:enumflags2",
@@ -20,7 +20,7 @@ libei = [
     "dep:reis",
     "dep:xkbcommon",
 ]
-wlroots = [
+wlr-protocols = [
     "dep:rustix",
     "dep:wayland-client",
     "dep:wayland-protocols",

@@ -8,7 +8,7 @@ use super::kde::KdeBackend;
 use super::libei::LibeiBackend;
 #[cfg(feature = "uinput")]
 use super::uinput::UinputBackend;
-#[cfg(feature = "wlroots")]
+#[cfg(feature = "wlr-protocols")]
 use super::wlr_protocols::WlrProtocolsBackend;
 use super::DynBackend;
 use crate::error::{Result, WdoError};
@@ -215,9 +215,9 @@ async fn build_one(kind: BackendKind) -> Result<DynBackend> {
             what: "this build does not include the libei backend",
         }),
 
-        #[cfg(feature = "wlroots")]
+        #[cfg(feature = "wlr-protocols")]
         BackendKind::WlrProtocols => Ok(Box::new(WlrProtocolsBackend::try_new().await?)),
-        #[cfg(not(feature = "wlroots"))]
+        #[cfg(not(feature = "wlr-protocols"))]
         BackendKind::WlrProtocols => Err(WdoError::NotSupported {
             backend: "wlr-protocols",
             what: "this build does not include the wlr-protocols backend",

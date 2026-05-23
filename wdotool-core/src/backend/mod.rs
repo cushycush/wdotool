@@ -20,7 +20,7 @@ pub(crate) mod kde;
 pub(crate) mod libei;
 #[cfg(feature = "uinput")]
 pub(crate) mod uinput;
-#[cfg(feature = "wlroots")]
+#[cfg(feature = "wlr-protocols")]
 pub(crate) mod wlr_protocols;
 
 #[async_trait]
