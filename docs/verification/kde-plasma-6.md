@@ -48,12 +48,12 @@ Edit this file in a fork or a branch, fill in the matrix, open a PR. That PR is 
 | `info` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | ✅ **PASS** |
 | `key` (ASCII chord) | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
 | `type` (ASCII text) | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | ✅ **PASS** |
-| `type` (Unicode 中文 / emoji) | ❌ **FAIL** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A | ❌ **FAIL** |
+| `type` (Unicode 中文 / emoji) | ❌ **FAIL** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | ❌ **FAIL** |
 | `mousemove` (absolute) | ✅ **PASS** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A |
 | `mousemove` (relative) | ✅ **PASS** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A |
 | `click` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
 | `mousedown` / `mouseup` | ❌ **FAIL** | ❌ **FAIL** | ❌ **FAIL** | N/A | ❌ **FAIL** | N/A |
-| `scroll` | ✅ **PASS** (with a note bellow) | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
+| `scroll` | ✅ **PASS** (with a note below) | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
 | `search` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
 | `getactivewindow` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
 | `windowactivate` | ✅ **PASS** | ✅ **PASS** | ✅ **PASS** | N/A | ✅ **PASS** | N/A |
@@ -208,6 +208,8 @@ sleep 2 && wdotool mouseup 1
 ```
 
 You should be able to drag-select text or move a window title bar. The two failure modes I care about: the button gets stuck (held forever after the second command), or never registers as held in the first place.
+
+On libei-based backends (kde, gnome) this two-step test reliably fails because the libei session ends when each `wdotool` process exits, releasing the button before the second command runs. Keep a `wdotool prime` running in another terminal to hold the session open across calls. The press-then-release sequence in a single click (`wdotool click 1`) is unaffected.
 
 ### `scroll`
 
