@@ -488,6 +488,14 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
             }
             if device.has_capability(DeviceCapability::PointerAbsolute) {
                 found.push("pointer_absolute");
+                for r in device.regions() {
+                    debug!(
+                        offset = ?(r.x, r.y),
+                        size = ?(r.width, r.height),
+                        scale = r.scale,
+                        "libei PointerAbsolute region (logical pixels)"
+                    );
+                }
                 st.pointer_abs = Some(device.clone());
             }
             if device.has_capability(DeviceCapability::Button) {
@@ -588,6 +596,57 @@ fn resolve_keycode(keymap: &xkb::Keymap, name: &str) -> Option<(u32, bool)> {
         }
     }
     None
+}
+
+/// Convert a user-supplied device-pixel coordinate into the
+/// logical-pixel coordinate libei's `motion_absolute` expects.
+///
+/// The EIS server (KWin on KDE, mutter on GNOME) advertises a region
+/// per absolute device. Region `x`, `y`, `width`, `height` are in
+/// *logical* pixels; `scale` is the physical-per-logical ratio. With a
+/// 4K display at 125% scale, KDE advertises a 3072x1728 region at
+/// scale=1.25, and `motion_absolute` takes coordinates inside that
+/// region in logical pixels.
+///
+/// xdotool's coordinate convention is device pixels (X11 has no
+/// scale concept), and wdotool inherits that. Without converting,
+/// `wdotool mousemove 1920 0` on hron's 4K/125% box ends up at
+/// physical (2400, 0) because KWin scales our 1920 a second time.
+/// Dividing by the region scale before sending fixes it.
+///
+/// Multi-region picking: in mixed-scale multi-monitor setups, the
+/// region whose device-pixel extent contains `(px, py)` wins. With a
+/// single region or no regions, the first region's scale (or 1.0)
+/// applies and the function is a no-op for scale=1.0.
+fn convert_absolute_to_logical(regions: &[rev::Region], px: f32, py: f32) -> (f32, f32) {
+    let scale = pick_scale_for_point(regions, px, py);
+    (px / scale, py / scale)
+}
+
+fn pick_scale_for_point(regions: &[rev::Region], px: f32, py: f32) -> f32 {
+    for r in regions {
+        let s = r.scale;
+        let left = r.x as f32 * s;
+        let top = r.y as f32 * s;
+        let right = left + r.width as f32 * s;
+        let bottom = top + r.height as f32 * s;
+        if px >= left && px < right && py >= top && py < bottom {
+            return s;
+        }
+    }
+    regions.first().map(|r| r.scale).unwrap_or(1.0)
+}
+
+/// Convert a user-supplied device-pixel delta into a logical-pixel
+/// delta for libei's `motion_relative`. Same reasoning as
+/// [`convert_absolute_to_logical`]. Relative motion doesn't tell us
+/// which region the cursor is over, so the first region's scale wins
+/// (single-monitor: same as picking the only region; same-scale
+/// multi-monitor: every region has the same scale anyway). Falls back
+/// to 1.0 when no regions were announced.
+fn convert_relative_to_logical(regions: &[rev::Region], dx: f32, dy: f32) -> (f32, f32) {
+    let scale = regions.first().map(|r| r.scale).unwrap_or(1.0);
+    (dx / scale, dy / scale)
 }
 
 fn xdotool_button_to_evdev(btn: MouseButton) -> Option<u32> {
@@ -763,13 +822,25 @@ impl Backend for LibeiBackend {
         if absolute {
             self.emit_frame(DeviceChoice::PointerAbsolute, |device, _| {
                 if let Some(p) = device.interface::<ei::PointerAbsolute>() {
-                    p.motion_absolute(x as f32, y as f32);
+                    let (lx, ly) =
+                        convert_absolute_to_logical(device.regions(), x as f32, y as f32);
+                    p.motion_absolute(lx, ly);
                 }
             })
         } else {
-            self.emit_frame(DeviceChoice::Pointer, |device, _| {
+            self.emit_frame(DeviceChoice::Pointer, |device, st| {
                 if let Some(p) = device.interface::<ei::Pointer>() {
-                    p.motion_relative(x as f32, y as f32);
+                    // The relative-pointer device may not announce its
+                    // own region (it has no absolute coordinate frame).
+                    // Fall back to the absolute device's region for the
+                    // shared compositor scale.
+                    let regions = if !device.regions().is_empty() {
+                        device.regions()
+                    } else {
+                        st.pointer_abs.as_ref().map(|d| d.regions()).unwrap_or(&[])
+                    };
+                    let (lx, ly) = convert_relative_to_logical(regions, x as f32, y as f32);
+                    p.motion_relative(lx, ly);
                 }
             })
         }
@@ -855,5 +926,82 @@ mod tests {
         );
         assert_eq!(parse_timeout_secs(Some("-5")), DEFAULT_TIMEOUT_SECS);
         assert_eq!(parse_timeout_secs(Some("3.5")), DEFAULT_TIMEOUT_SECS);
+    }
+
+    fn region(x: u32, y: u32, width: u32, height: u32, scale: f32) -> rev::Region {
+        rev::Region {
+            x,
+            y,
+            width,
+            height,
+            scale,
+            mapping_id: None,
+        }
+    }
+
+    #[test]
+    fn convert_absolute_no_regions_is_identity() {
+        let (lx, ly) = convert_absolute_to_logical(&[], 1920.0, 0.0);
+        assert_eq!(lx, 1920.0);
+        assert_eq!(ly, 0.0);
+    }
+
+    #[test]
+    fn convert_absolute_unit_scale_is_identity() {
+        let regions = vec![region(0, 0, 1920, 1080, 1.0)];
+        let (lx, ly) = convert_absolute_to_logical(&regions, 960.0, 540.0);
+        assert_eq!(lx, 960.0);
+        assert_eq!(ly, 540.0);
+    }
+
+    #[test]
+    fn convert_absolute_125_percent_divides_by_scale() {
+        // hron's case: 4K panel at 125% scale, region in logical
+        // pixels. User asks for device-pixel midpoint; we should
+        // send the logical-pixel equivalent so KWin's re-scaling
+        // lands the cursor where the user asked.
+        let regions = vec![region(0, 0, 3072, 1728, 1.25)];
+        let (lx, ly) = convert_absolute_to_logical(&regions, 1920.0, 0.0);
+        assert_eq!(lx, 1536.0);
+        assert_eq!(ly, 0.0);
+    }
+
+    #[test]
+    fn convert_absolute_picks_containing_region() {
+        // Two 4K@125% monitors side-by-side in logical layout. Each
+        // covers 3840 device pixels horizontally.
+        let regions = vec![
+            region(0, 0, 3072, 1728, 1.25),
+            region(3072, 0, 3072, 1728, 1.25),
+        ];
+        // A point inside monitor 2 (device pixels 3840..7680):
+        let (lx, ly) = convert_absolute_to_logical(&regions, 5760.0, 100.0);
+        assert_eq!(lx, 4608.0); // 5760 / 1.25
+        assert_eq!(ly, 80.0); // 100 / 1.25
+    }
+
+    #[test]
+    fn convert_absolute_falls_back_to_first_region_scale() {
+        // Out-of-bounds point: nothing contains it. Use first region's
+        // scale so the cursor still lands somewhere predictable.
+        let regions = vec![region(0, 0, 1920, 1080, 2.0)];
+        let (lx, ly) = convert_absolute_to_logical(&regions, 5000.0, 5000.0);
+        assert_eq!(lx, 2500.0);
+        assert_eq!(ly, 2500.0);
+    }
+
+    #[test]
+    fn convert_relative_no_regions_is_identity() {
+        let (lx, ly) = convert_relative_to_logical(&[], 100.0, 50.0);
+        assert_eq!(lx, 100.0);
+        assert_eq!(ly, 50.0);
+    }
+
+    #[test]
+    fn convert_relative_divides_by_first_region_scale() {
+        let regions = vec![region(0, 0, 3072, 1728, 1.25)];
+        let (lx, ly) = convert_relative_to_logical(&regions, 100.0, 50.0);
+        assert_eq!(lx, 80.0);
+        assert_eq!(ly, 40.0);
     }
 }
