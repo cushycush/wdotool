@@ -12,13 +12,13 @@
     flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
+        manifest = (pkgs.lib.importTOML ./Cargo.toml).workspace.package;
       in
       {
         packages = rec {
           default = wdotool;
           wdotool = pkgs.rustPlatform.buildRustPackage {
-            pname = manifest.name;
+            pname = "wdotool";
             version = manifest.version;
             src = pkgs.lib.cleanSource ./.;
             # Re-uses the tracked Cargo.lock for a reproducible build. All
@@ -35,7 +35,7 @@
             doCheck = true;
 
             meta = with pkgs.lib; {
-              description = manifest.description;
+              description = "wdotool — xdotool-compatible input automation for Wayland";
               homepage = "https://github.com/cushycush/wdotool";
               license = with licenses; [ mit asl20 ];
               mainProgram = "wdotool";
