@@ -2,6 +2,6 @@
   "uuid": "wdotool@wdotool.github.io",
   "name": "wdotool bridge",
   "description": "Exposes GNOME Shell window management and pointer-position queries to the wdotool CLI via a session-bus D-Bus service. No background activity — only handles incoming method calls from the wdotool client.",
-  "shell-version": ["45", "46", "47", "48"],
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": "https://github.com/cushycush/wdotool"
 }
