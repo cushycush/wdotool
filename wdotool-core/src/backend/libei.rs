@@ -59,7 +59,23 @@ fn libei_timeout_secs() -> u64 {
 
 pub struct LibeiBackend {
     state: Arc<Mutex<State>>,
+    /// Latest device snapshot, pushed by the dispatcher thread after every
+    /// processed event. `wait_for_device` reads this instead of re-locking
+    /// `state` - see its doc comment for why re-locking `state` from the
+    /// waiting task (even just to check-and-drop, whether on a timer or on
+    /// a plain `Notify` ping) starves the dispatcher thread out of the
+    /// *same* mutex it needs for the next event. A `watch` channel doesn't
+    /// have that failure mode: the dispatcher's `send()` never blocks, and
+    /// receivers read the latest value without contending with it.
+    devices_rx: tokio::sync::Mutex<tokio::sync::watch::Receiver<DeviceSnapshot>>,
     start: Instant,
+}
+
+#[derive(Clone, Default)]
+struct DeviceSnapshot {
+    keyboard: Option<rev::Device>,
+    pointer: Option<rev::Device>,
+    pointer_abs: Option<rev::Device>,
 }
 
 // xkb_keymap is documented thread-safe for read operations; we gate access
@@ -88,6 +104,7 @@ impl LibeiBackend {
         // signals when the first usable device has Resumed.
         let (connection_tx, connection_rx) = std::sync::mpsc::sync_channel::<InitResult>(1);
         let (ready_tx, ready_rx) = oneshot::channel::<()>();
+        let (devices_tx, devices_rx) = tokio::sync::watch::channel(DeviceSnapshot::default());
 
         std::thread::Builder::new()
             .name("wdotool-libei".into())
@@ -103,7 +120,7 @@ impl LibeiBackend {
                         return;
                     }
                 };
-                rt.block_on(dispatcher(context, connection_tx, ready_tx));
+                rt.block_on(dispatcher(context, connection_tx, ready_tx, devices_tx));
             })
             .map_err(|e| WdoError::Backend {
                 backend: NAME,
@@ -156,6 +173,7 @@ impl LibeiBackend {
 
         Ok(Self {
             state,
+            devices_rx: tokio::sync::Mutex::new(devices_rx),
             start: Instant::now(),
         })
     }
@@ -164,27 +182,68 @@ impl LibeiBackend {
         self.start.elapsed().as_micros() as u64
     }
 
-    fn emit_frame<F>(&self, pick: DeviceChoice, body: F) -> Result<()>
+    /// Waits for the requested device for up to `TOTAL_WAIT_MS`, via a
+    /// `watch` channel the dispatcher pushes a snapshot into after every
+    /// event - never touches `self.state`'s mutex.
+    ///
+    /// `try_new()` only blocks for the *first* device to resume - on a fresh
+    /// connection that's usually `pointer_abs`, since it tends to arrive
+    /// before the relative-pointer/keyboard devices. A caller that
+    /// immediately needs `pointer` or `keyboard` right after construction
+    /// (e.g. the very first `click`/`key` invocation) can therefore race the
+    /// background dispatcher thread, which is still draining the remaining
+    /// `DeviceResumed` events - `emit_frame` used to fail immediately in
+    /// that case ("no relative-pointer device from EIS").
+    ///
+    /// NOTE for future maintainers: an earlier version of this fix appeared
+    /// to show the dispatcher thread stalling for seconds regardless of the
+    /// waiting strategy used here (polling, `Notify`, `watch::wait_for`,
+    /// `watch::changed`) - `gdb`, attached mid-stall, eventually traced it
+    /// to the dispatcher thread blocking on `std::io::Stderr`'s internal
+    /// lock (`ReentrantLock`), not on anything in this function or `state`.
+    /// The investigation's own `eprintln!`/extra logging, added densely on
+    /// both this task and the dispatcher thread to narrow the bug down, was
+    /// itself contending for that same process-wide stdio lock heavily
+    /// enough to reproduce a multi-second stall - a real observer effect.
+    /// Keep diagnostic logging on this path sparse.
+    async fn wait_for_device(&self, pick: DeviceChoice) -> Result<rev::Device> {
+        const TOTAL_WAIT_MS: u64 = 2000;
+
+        fn extract(pick: DeviceChoice, snap: &DeviceSnapshot) -> Option<rev::Device> {
+            match pick {
+                DeviceChoice::Keyboard => snap.keyboard.clone(),
+                DeviceChoice::Pointer => snap.pointer.clone(),
+                DeviceChoice::PointerAbsolute => snap.pointer_abs.clone(),
+            }
+        }
+
+        let mut rx = self.devices_rx.lock().await;
+        loop {
+            if let Some(device) = extract(pick, &rx.borrow()) {
+                return Ok(device);
+            }
+            match tokio::time::timeout(Duration::from_millis(TOTAL_WAIT_MS), rx.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {
+                    return Err(WdoError::NotSupported { backend: NAME, what: pick.missing_error() });
+                }
+                Err(_) => {
+                    return Err(WdoError::NotSupported { backend: NAME, what: pick.missing_error() });
+                }
+            }
+        }
+    }
+
+    async fn emit_frame<F>(&self, pick: DeviceChoice, body: F) -> Result<()>
     where
         F: FnOnce(&rev::Device, &State),
     {
+        let device = self.wait_for_device(pick).await?;
+
         let mut st = self.state.lock().unwrap();
         let serial = st.connection.serial();
         st.sequence = st.sequence.wrapping_add(1);
         let seq = st.sequence;
-
-        let device = match pick {
-            DeviceChoice::Keyboard => st.keyboard.clone(),
-            DeviceChoice::Pointer => st.pointer.clone(),
-            DeviceChoice::PointerAbsolute => st.pointer_abs.clone(),
-        };
-
-        let Some(device) = device else {
-            return Err(WdoError::NotSupported {
-                backend: NAME,
-                what: pick.missing_error(),
-            });
-        };
 
         device.device().start_emulating(serial, seq);
         body(&device, &st);
@@ -233,9 +292,10 @@ async fn dispatcher(
     context: ei::Context,
     init_tx: std::sync::mpsc::SyncSender<InitResult>,
     ready_tx: oneshot::Sender<()>,
+    devices_tx: tokio::sync::watch::Sender<DeviceSnapshot>,
 ) {
     let (connection, mut stream) = match context
-        .handshake_tokio(crate::APP_ID, ei::handshake::ContextType::Sender)
+        .handshake_tokio("wdotool", ei::handshake::ContextType::Sender)
         .await
     {
         Ok(pair) => pair,
@@ -280,6 +340,13 @@ async fn dispatcher(
                 let _ = tx.send(());
             }
         }
+        let snapshot = DeviceSnapshot {
+            keyboard: st.keyboard.clone(),
+            pointer: st.pointer.clone(),
+            pointer_abs: st.pointer_abs.clone(),
+        };
+        drop(st);
+        let _ = devices_tx.send(snapshot);
     }
     debug!("libei event stream ended");
 }
@@ -441,31 +508,50 @@ fn portal_err(e: ashpd::Error) -> WdoError {
 fn handle_event(st: &mut State, event: EiEvent) -> bool {
     match event {
         EiEvent::SeatAdded(ev) => {
-            // KWin's EIS backend (as of Plasma 6.6.5) silently drops the
-            // keyboard device if Keyboard is bound in the same
-            // ei_seat.bind call as Pointer or PointerAbsolute. Binding
-            // Keyboard with only Button/Scroll, or alone, works fine. So
-            // we bind keyboard first to get the keyboard device created,
-            // then bind the full set; the second bind keeps the existing
-            // keyboard device and triggers pointer/absolute creation.
-            // Upstream: https://bugs.kde.org/show_bug.cgi?id=520464
             let caps_all: BitFlags<DeviceCapability> = DeviceCapability::Keyboard
                 | DeviceCapability::Pointer
                 | DeviceCapability::PointerAbsolute
                 | DeviceCapability::Button
                 | DeviceCapability::Scroll;
-            ev.seat.bind_capabilities(DeviceCapability::Keyboard.into());
-            if let Err(err) = st.connection.flush() {
-                warn!(?err, "failed to flush libei seat bind (stage 1, keyboard)");
+
+            // KWin's EIS backend (as of Plasma 6.6.5) silently drops the
+            // keyboard device if Keyboard is bound in the same
+            // ei_seat.bind call as Pointer or PointerAbsolute. Binding
+            // Keyboard with only Button/Scroll, or alone, works fine. So
+            // on KDE we bind keyboard first to get the keyboard device
+            // created, then bind the full set; the second bind keeps the
+            // existing keyboard device and triggers pointer/absolute
+            // creation. Upstream: https://bugs.kde.org/show_bug.cgi?id=520464
+            //
+            // Only apply this two-stage bind on KDE; bind once everywhere
+            // else (GNOME/Mutter included, where it isn't needed).
+            let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
+                .map(|d| d.to_lowercase().contains("kde"))
+                .unwrap_or(false);
+
+            if is_kde {
+                ev.seat.bind_capabilities(DeviceCapability::Keyboard.into());
+                if let Err(err) = st.connection.flush() {
+                    warn!(?err, "failed to flush libei seat bind (stage 1, keyboard)");
+                }
+                ev.seat.bind_capabilities(caps_all);
+                if let Err(err) = st.connection.flush() {
+                    warn!(?err, "failed to flush libei seat bind (stage 2, full set)");
+                }
+                debug!(
+                    seat_name = ev.seat.name().unwrap_or("<unnamed>"),
+                    "libei SeatAdded, two-stage bind (kbd first, then full set; KDE workaround)"
+                );
+            } else {
+                ev.seat.bind_capabilities(caps_all);
+                if let Err(err) = st.connection.flush() {
+                    warn!(?err, "failed to flush libei seat bind (single stage)");
+                }
+                debug!(
+                    seat_name = ev.seat.name().unwrap_or("<unnamed>"),
+                    "libei SeatAdded, single-stage bind (non-KDE)"
+                );
             }
-            ev.seat.bind_capabilities(caps_all);
-            if let Err(err) = st.connection.flush() {
-                warn!(?err, "failed to flush libei seat bind (stage 2, full set)");
-            }
-            info!(
-                seat_name = ev.seat.name().unwrap_or("<unnamed>"),
-                "libei SeatAdded, two-stage bind (kbd first, then full set; KDE workaround)"
-            );
         }
         EiEvent::DeviceAdded(ev) => {
             let device = ev.device.clone();
@@ -499,18 +585,18 @@ fn handle_event(st: &mut State, event: EiEvent) -> bool {
             if device.has_capability(DeviceCapability::Touch) {
                 found.push("touch");
             }
-            info!(name, device_type, caps = ?found, "libei DeviceAdded");
+            debug!(name, device_type, caps = ?found, "libei DeviceAdded");
         }
         EiEvent::DeviceResumed(_) => {
             let has_kbd = st.keyboard.is_some();
             let has_ptr = st.pointer.is_some();
             let has_ptr_abs = st.pointer_abs.is_some();
             let ready = has_kbd || has_ptr || has_ptr_abs;
-            info!(has_kbd, has_ptr, has_ptr_abs, ready, "libei DeviceResumed");
+            debug!(has_kbd, has_ptr, has_ptr_abs, ready, "libei DeviceResumed");
             return ready;
         }
         EiEvent::DeviceRemoved(ev) => {
-            info!("libei DeviceRemoved");
+            debug!("libei DeviceRemoved");
             if st.keyboard.as_ref() == Some(&ev.device) {
                 st.keyboard = None;
             }
@@ -633,6 +719,14 @@ impl Backend for LibeiBackend {
     }
 
     async fn key(&self, keysym: &str, dir: KeyDirection) -> Result<()> {
+        // Same class of bug this whole file's fix targets: the keymap is
+        // loaded in the same DeviceAdded branch that sets `st.keyboard`
+        // (and before it - see handle_event), so waiting for the keyboard
+        // device via the same watch-channel mechanism `emit_frame` uses
+        // gives the keymap time to actually arrive too, instead of
+        // synchronously checking `state` the instant this fn is called.
+        self.wait_for_device(DeviceChoice::Keyboard).await?;
+
         let (keycode, needs_shift, shift_kc) = {
             let st = self.state.lock().unwrap();
             let keymap = st.keymap.as_ref().ok_or(WdoError::NotSupported {
@@ -685,6 +779,7 @@ impl Backend for LibeiBackend {
                 }
             }
         })
+        .await
     }
 
     async fn type_text(&self, text: &str, delay: Duration) -> Result<()> {
@@ -694,6 +789,8 @@ impl Backend for LibeiBackend {
         //
         // This is a best-effort fallback. For full Unicode injection, use the
         // wlr-protocols backend (which CAN install a transient keymap).
+        self.wait_for_device(DeviceChoice::Keyboard).await?;
+
         let resolved: Vec<(u32, bool)> = {
             let st = self.state.lock().unwrap();
             let keymap = st.keymap.as_ref().ok_or(WdoError::NotSupported {
@@ -751,7 +848,8 @@ impl Backend for LibeiBackend {
                         kb.key(kc, ei::keyboard::KeyState::Released);
                     }
                 }
-            })?;
+            })
+            .await?;
             if !delay.is_zero() && idx + 1 < chars_count {
                 tokio::time::sleep(delay).await;
             }
@@ -766,12 +864,14 @@ impl Backend for LibeiBackend {
                     p.motion_absolute(x as f32, y as f32);
                 }
             })
+            .await
         } else {
             self.emit_frame(DeviceChoice::Pointer, |device, _| {
                 if let Some(p) = device.interface::<ei::Pointer>() {
                     p.motion_relative(x as f32, y as f32);
                 }
             })
+            .await
         }
     }
 
@@ -791,6 +891,7 @@ impl Backend for LibeiBackend {
                 }
             }
         })
+        .await
     }
 
     async fn scroll(&self, dx: f64, dy: f64) -> Result<()> {
@@ -799,6 +900,7 @@ impl Backend for LibeiBackend {
                 s.scroll(dx as f32, dy as f32);
             }
         })
+        .await
     }
 
     async fn list_windows(&self) -> Result<Vec<WindowInfo>> {
